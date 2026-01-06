@@ -6,40 +6,111 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
-// --- DATA KEY ---
+// --- DATA KEYS ---
 const String kStorageKey = 'pay_tracker_final_db';
+const String kSetting24h = 'setting_24h';
+const String kSettingDarkMode = 'setting_dark_mode';
 
 void main() {
   runApp(const PayTrackerApp());
 }
 
-class PayTrackerApp extends StatelessWidget {
+class PayTrackerApp extends StatefulWidget {
   const PayTrackerApp({super.key});
+
+  @override
+  State<PayTrackerApp> createState() => _PayTrackerAppState();
+}
+
+class _PayTrackerAppState extends State<PayTrackerApp> {
+  bool use24HourFormat = false;
+  bool isDarkMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      use24HourFormat = prefs.getBool(kSetting24h) ?? false;
+      isDarkMode = prefs.getBool(kSettingDarkMode) ?? false; 
+    });
+  }
+
+  void _toggleFormat(bool val) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kSetting24h, val);
+    setState(() => use24HourFormat = val);
+  }
+
+  void _toggleDarkMode(bool val) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kSettingDarkMode, val);
+    setState(() => isDarkMode = val);
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Pay Tracker Pro',
+      themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+      
+      // --- LIGHT THEME (Clean Indigo) ---
       theme: ThemeData(
         useMaterial3: true,
+        brightness: Brightness.light,
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF3F51B5), // Indigo
           brightness: Brightness.light,
-          primary: const Color(0xFF304FFE),
-          secondary: const Color(0xFF00BFA5),
-        ),
-        appBarTheme: const AppBarTheme(
-          centerTitle: true,
-          backgroundColor: Colors.white,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          titleTextStyle: TextStyle(color: Colors.black87, fontSize: 18, fontWeight: FontWeight.bold),
-          iconTheme: IconThemeData(color: Colors.black87),
+          surface: Colors.white,
         ),
         scaffoldBackgroundColor: const Color(0xFFF5F7FA),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black87,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+        ),
+        cardColor: Colors.white,
       ),
-      home: const PayPeriodListScreen(),
+
+      // --- DARK THEME (Pure Dark Grey/Black - NO Violet Tint) ---
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        // Manually defining colors to avoid the pastel violet wash
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF536DFE), // Vibrant Indigo
+          onPrimary: Colors.white,
+          secondary: Color(0xFF00BFA5), // Teal Accent
+          surface: Color(0xFF1E1E1E), // Dark Grey Card
+          onSurface: Colors.white,
+          background: Color(0xFF121212), // Pure Black BG
+        ),
+        scaffoldBackgroundColor: const Color(0xFF121212), 
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF1E1E1E),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+        ),
+        cardColor: const Color(0xFF1E1E1E),
+        textSelectionTheme: const TextSelectionThemeData(
+          cursorColor: Color(0xFF536DFE),
+          selectionHandleColor: Color(0xFF536DFE),
+        ),
+      ),
+
+      home: PayPeriodListScreen(
+        use24HourFormat: use24HourFormat,
+        isDarkMode: isDarkMode,
+        onToggleFormat: _toggleFormat,
+        onToggleDarkMode: _toggleDarkMode,
+      ),
     );
   }
 }
@@ -73,6 +144,12 @@ TimeOfDay roundTime(TimeOfDay time, {required bool isStart}) {
   }
 
   return TimeOfDay(hour: h, minute: m);
+}
+
+String formatTime(BuildContext context, TimeOfDay time, bool use24h) {
+  final now = DateTime.now();
+  final dt = DateTime(now.year, now.month, now.day, time.hour, time.minute);
+  return DateFormat(use24h ? 'HH:mm' : 'h:mm a').format(dt);
 }
 
 // --- DATA MODELS ---
@@ -207,7 +284,8 @@ class PayPeriod {
   }
 }
 
-// --- FAST DATE PICKER ---
+// --- MODERN PICKERS ---
+
 Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {DateTime? minDate, DateTime? maxDate}) async {
   playClickSound(context);
   DateTime safeInitial = initial;
@@ -215,13 +293,18 @@ Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {Da
   if (maxDate != null && initial.isAfter(maxDate)) safeInitial = maxDate;
 
   DateTime tempDate = safeInitial;
+  
+  final bool isDark = Theme.of(context).brightness == Brightness.dark;
+  final Color bg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+  final Color text = isDark ? Colors.white : Colors.black;
+
   return showModalBottomSheet<DateTime>(
     context: context,
-    backgroundColor: Colors.white,
+    backgroundColor: bg,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
     builder: (BuildContext builder) {
       return SizedBox(
-        height: 300,
+        height: 280, // Slightly reduced height to keep compact
         child: Column(
           children: [
             Padding(
@@ -230,7 +313,7 @@ Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {Da
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   TextButton(child: const Text('Cancel', style: TextStyle(color: Colors.red)), onPressed: () => Navigator.of(context).pop()),
-                  const Text("Select Date", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text("Select Date", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: text)),
                   TextButton(
                     child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)), 
                     onPressed: () {
@@ -242,12 +325,19 @@ Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {Da
               ),
             ),
             Expanded(
-              child: CupertinoDatePicker(
-                mode: CupertinoDatePickerMode.date,
-                initialDateTime: safeInitial,
-                minimumDate: minDate ?? DateTime(2020),
-                maximumDate: maxDate ?? DateTime(2030),
-                onDateTimeChanged: (DateTime newDate) => tempDate = newDate,
+              // FIX: Clean CupertinoTheme without customTextStyle avoids "squished" rendering
+              child: CupertinoTheme(
+                data: CupertinoThemeData(
+                  brightness: isDark ? Brightness.dark : Brightness.light,
+                  primaryColor: Colors.blue,
+                ),
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.date,
+                  initialDateTime: safeInitial,
+                  minimumDate: minDate ?? DateTime(2020),
+                  maximumDate: maxDate ?? DateTime(2030),
+                  onDateTimeChanged: (DateTime newDate) => tempDate = newDate,
+                ),
               ),
             ),
           ],
@@ -257,16 +347,23 @@ Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {Da
   );
 }
 
-Future<TimeOfDay?> showFastTimePicker(BuildContext context, TimeOfDay initial) async {
+Future<TimeOfDay?> showFastTimePicker(BuildContext context, TimeOfDay initial, bool use24h) async {
   playClickSound(context);
-  Duration tempDuration = Duration(hours: initial.hour, minutes: initial.minute);
+  
+  final now = DateTime.now();
+  DateTime tempDate = DateTime(now.year, now.month, now.day, initial.hour, initial.minute);
+
+  final bool isDark = Theme.of(context).brightness == Brightness.dark;
+  final Color bg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+  final Color text = isDark ? Colors.white : Colors.black;
+
   return showModalBottomSheet<TimeOfDay>(
     context: context,
-    backgroundColor: Colors.white,
+    backgroundColor: bg,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
     builder: (BuildContext builder) {
       return SizedBox(
-        height: 300,
+        height: 280,
         child: Column(
           children: [
             Padding(
@@ -275,22 +372,29 @@ Future<TimeOfDay?> showFastTimePicker(BuildContext context, TimeOfDay initial) a
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   TextButton(child: const Text('Cancel', style: TextStyle(color: Colors.red)), onPressed: () => Navigator.of(context).pop()),
-                  const Text("Select Time", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text("Select Time", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: text)),
                   TextButton(
                     child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)), 
                     onPressed: () {
                        playClickSound(context);
-                       Navigator.of(context).pop(TimeOfDay(hour: tempDuration.inHours % 24, minute: tempDuration.inMinutes % 60));
+                       Navigator.of(context).pop(TimeOfDay.fromDateTime(tempDate));
                     }
                   ),
                 ],
               ),
             ),
             Expanded(
-              child: CupertinoTimerPicker(
-                mode: CupertinoTimerPickerMode.hm,
-                initialTimerDuration: tempDuration,
-                onTimerDurationChanged: (Duration newDuration) => tempDuration = newDuration,
+              child: CupertinoTheme(
+                data: CupertinoThemeData(
+                  brightness: isDark ? Brightness.dark : Brightness.light,
+                  primaryColor: Colors.blue,
+                ),
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.time,
+                  initialDateTime: tempDate,
+                  use24hFormat: use24h,
+                  onDateTimeChanged: (DateTime newDate) => tempDate = newDate,
+                ),
               ),
             ),
           ],
@@ -303,7 +407,18 @@ Future<TimeOfDay?> showFastTimePicker(BuildContext context, TimeOfDay initial) a
 // --- SCREEN 1: DASHBOARD ---
 
 class PayPeriodListScreen extends StatefulWidget {
-  const PayPeriodListScreen({super.key});
+  final bool use24HourFormat;
+  final bool isDarkMode;
+  final Function(bool) onToggleFormat;
+  final Function(bool) onToggleDarkMode;
+  
+  const PayPeriodListScreen({
+    super.key, 
+    required this.use24HourFormat, 
+    required this.isDarkMode,
+    required this.onToggleFormat,
+    required this.onToggleDarkMode
+  });
 
   @override
   State<PayPeriodListScreen> createState() => _PayPeriodListScreenState();
@@ -340,37 +455,28 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     await prefs.setString(kStorageKey, data);
   }
 
-  // --- SETTINGS ACTIONS ---
-  
   void _exportData() {
     StringBuffer sb = StringBuffer();
-
     for (var p in periods) {
-      sb.writeln("CUTOFF: ${p.name}");
-      sb.writeln("TOTAL PAY: ₱ ${currency.format(p.totalPay)}");
-      sb.writeln("--------------------------------");
-      
-      // Sort shifts by date for cleaner export
+      sb.writeln("${p.name} (Total: ₱ ${currency.format(p.totalPay)})");
       List<Shift> sortedShifts = List.from(p.shifts);
       sortedShifts.sort((a,b) => a.date.compareTo(b.date));
 
       for (var s in sortedShifts) {
         String dateStr = DateFormat('MMM d').format(s.date);
-        
         if (s.isManualPay) {
           sb.writeln("$dateStr: Flat Pay (₱ ${currency.format(s.manualAmount)})");
         } else {
-          String tIn = s.rawTimeIn.format(context);
-          String tOut = s.rawTimeOut.format(context);
+          String tIn = formatTime(context, s.rawTimeIn, widget.use24HourFormat);
+          String tOut = formatTime(context, s.rawTimeOut, widget.use24HourFormat);
           sb.writeln("$dateStr: $tIn to $tOut (REG: ${s.regularHours}h, OT: ${s.overtimeHours}h)");
         }
       }
-      sb.writeln("\n"); // Empty line between periods
+      sb.writeln("\n"); 
     }
-
     Clipboard.setData(ClipboardData(text: sb.toString()));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Formatted Report copied to clipboard!"), backgroundColor: Colors.green)
+      const SnackBar(content: Text("Report copied to clipboard!"), backgroundColor: Colors.green)
     );
   }
 
@@ -400,30 +506,21 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     }
   }
 
-  // --- SORTING ---
   void _sortPeriods(String type) {
     playClickSound(context);
     setState(() {
-      if (type == 'newest') {
-        periods.sort((a, b) => b.start.compareTo(a.start)); // Newest (Jan) First
-      } else if (type == 'oldest') {
-        periods.sort((a, b) => a.start.compareTo(b.start)); // Oldest (Dec) First
-      } else if (type == 'edited') {
-        periods.sort((a, b) => b.lastEdited.compareTo(a.lastEdited)); // Recently Edited First
-      }
+      if (type == 'newest') periods.sort((a, b) => b.start.compareTo(a.start));
+      else if (type == 'oldest') periods.sort((a, b) => a.start.compareTo(b.start)); 
+      else if (type == 'edited') periods.sort((a, b) => b.lastEdited.compareTo(a.lastEdited));
     });
     _saveData();
   }
 
   void _createNewPeriod() async {
     DateTime now = DateTime.now();
-    DateTime defaultStart;
-    
-    if (now.day <= 15) {
-      defaultStart = DateTime(now.year, now.month, 1);
-    } else {
-      defaultStart = DateTime(now.year, now.month, 16);
-    }
+    DateTime defaultStart = (now.day <= 15) 
+      ? DateTime(now.year, now.month, 1) 
+      : DateTime(now.year, now.month, 16);
 
     playClickSound(context);
     DateTime? start = await showFastDatePicker(context, defaultStart);
@@ -456,7 +553,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     );
     setState(() {
       periods.insert(0, newPeriod);
-      // Default sort to Newest First
       periods.sort((a, b) => b.start.compareTo(a.start));
     });
     _saveData();
@@ -470,7 +566,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
 
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => PeriodDetailScreen(period: period)),
+      MaterialPageRoute(builder: (_) => PeriodDetailScreen(period: period, use24HourFormat: widget.use24HourFormat)),
     );
     _saveData(); 
     setState(() {});
@@ -490,7 +586,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       p.end = newEnd;
       p.updateName();
       p.lastEdited = DateTime.now();
-      // Re-sort after edit
       periods.sort((a, b) => b.start.compareTo(a.start)); 
     });
     _saveData();
@@ -506,31 +601,69 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color textColor = isDark ? Colors.white : Colors.black87;
+    final Color subTextColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
+    final Color inputBg = isDark ? const Color(0xFF2C2C2C) : Colors.grey[100]!;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Pay Dashboard"),
         actions: [
-          // SORT MENU
           PopupMenuButton<String>(
             icon: const Icon(Icons.sort),
             onSelected: _sortPeriods,
-            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              const PopupMenuItem<String>(value: 'newest', child: Text('Newest First (Default)')),
-              const PopupMenuItem<String>(value: 'oldest', child: Text('Oldest First')),
-              const PopupMenuItem<String>(value: 'edited', child: Text('Recent Edits')),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'newest', child: Text('Newest First')),
+              PopupMenuItem(value: 'oldest', child: Text('Oldest First')),
+              PopupMenuItem(value: 'edited', child: Text('Recent Edits')),
             ],
           ),
-          // SETTINGS MENU (Export / Delete)
           PopupMenuButton<String>(
             icon: const Icon(Icons.settings),
+            itemBuilder: (ctx) => [
+              PopupMenuItem(
+                enabled: false, 
+                child: StatefulBuilder(
+                  builder: (context, setState) => Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("Dark Mode", style: TextStyle(color: textColor)),
+                      Switch(
+                        value: widget.isDarkMode,
+                        onChanged: (val) {
+                          widget.onToggleDarkMode(val);
+                          Navigator.pop(ctx);
+                        },
+                      )
+                    ],
+                  ),
+                )
+              ),
+              PopupMenuItem(
+                enabled: false, 
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("24-Hour Format", style: TextStyle(color: textColor)),
+                    Switch(
+                      value: widget.use24HourFormat,
+                      onChanged: (val) {
+                        widget.onToggleFormat(val);
+                        Navigator.pop(ctx);
+                      },
+                    )
+                  ],
+                )
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'export', child: Row(children: [Icon(Icons.copy, color: Colors.grey), SizedBox(width: 8), Text("Copy Report")])),
+              const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_forever, color: Colors.red), SizedBox(width: 8), Text("Delete All Data", style: TextStyle(color: Colors.red))])),
+            ],
             onSelected: (val) {
               if (val == 'export') _exportData();
               if (val == 'delete') _deleteAllData();
             },
-            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              const PopupMenuItem<String>(value: 'export', child: Row(children: [Icon(Icons.copy, color: Colors.grey), SizedBox(width: 8), Text("Copy Report to Clipboard")])),
-              const PopupMenuItem<String>(value: 'delete', child: Row(children: [Icon(Icons.delete_forever, color: Colors.red), SizedBox(width: 8), Text("Delete All Data", style: TextStyle(color: Colors.red))])),
-            ],
           ),
         ],
       ),
@@ -541,7 +674,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                 children: [
                   Icon(Icons.account_balance_wallet, size: 80, color: Colors.grey[300]),
                   const SizedBox(height: 20),
-                  Text("No Pay Trackers Found", style: TextStyle(color: Colors.grey[600], fontSize: 16)),
+                  Text("No Pay Trackers Found", style: TextStyle(color: subTextColor, fontSize: 16)),
                   const SizedBox(height: 10),
                   ElevatedButton.icon(
                     onPressed: _createNewPeriod,
@@ -601,7 +734,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: Theme.of(context).cardColor,
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
@@ -617,19 +750,19 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                               children: [
                                 Row(
                                   children: [
-                                    Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    Text(p.name, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textColor)),
                                     const SizedBox(width: 5),
-                                    Icon(Icons.edit, size: 12, color: Colors.grey[400])
+                                    Icon(Icons.edit, size: 12, color: subTextColor)
                                   ],
                                 ),
                                 const SizedBox(height: 4),
-                                Text("${p.shifts.length} shifts", style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                                Text("${p.shifts.length} shifts", style: TextStyle(color: subTextColor, fontSize: 12)),
                               ],
                             ),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                const Text("TOTAL PAY", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                                Text("TOTAL PAY", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: subTextColor)),
                                 Text(
                                   "₱${currency.format(p.totalPay)}",
                                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.primary),
@@ -657,7 +790,8 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
 
 class PeriodDetailScreen extends StatefulWidget {
   final PayPeriod period;
-  const PeriodDetailScreen({super.key, required this.period});
+  final bool use24HourFormat;
+  const PeriodDetailScreen({super.key, required this.period, required this.use24HourFormat});
 
   @override
   State<PeriodDetailScreen> createState() => _PeriodDetailScreenState();
@@ -706,10 +840,16 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     bool isManual = existingShift?.isManualPay ?? false;
     TextEditingController manualCtrl = TextEditingController(text: existingShift?.manualAmount.toString() ?? "0");
 
+    // Colors for Dialog
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color dlgBg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final Color inputBg = isDark ? const Color(0xFF2C2C2C) : Colors.grey[100]!;
+    final Color textColor = isDark ? Colors.white : Colors.black87;
+
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: dlgBg,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
       builder: (ctx) {
         return StatefulBuilder(
@@ -723,8 +863,8 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(existingShift == null ? "Add Shift" : "Edit Shift", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
-                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close))
+                      Text(existingShift == null ? "Add Shift" : "Edit Shift", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: textColor)),
+                      IconButton(onPressed: () => Navigator.pop(context), icon: Icon(Icons.close, color: textColor))
                     ],
                   ),
                   const SizedBox(height: 20),
@@ -736,13 +876,13 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                      decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12)),
+                      decoration: BoxDecoration(color: inputBg, borderRadius: BorderRadius.circular(12)),
                       child: Row(
                         children: [
                           const Icon(Icons.calendar_month, color: Colors.blue),
                           const SizedBox(width: 12),
-                          Text("Date: ", style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold)),
-                          Text(DateFormat('MMM d, yyyy').format(tempDate), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text("Date: ", style: TextStyle(color: isDark ? Colors.grey[400] : Colors.grey[600], fontWeight: FontWeight.bold)),
+                          Text(DateFormat('MMM d, yyyy').format(tempDate), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textColor)),
                           const Spacer(),
                           const Icon(Icons.edit, size: 16, color: Colors.grey),
                         ],
@@ -754,7 +894,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text("I don't know my time", style: TextStyle(fontWeight: FontWeight.w500)),
+                      Text("I don't know my time", style: TextStyle(fontWeight: FontWeight.w500, color: textColor)),
                       Switch(
                         value: isManual, 
                         activeColor: Colors.blue,
@@ -774,7 +914,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                          Expanded(
                            child: GestureDetector(
                              onTap: () async {
-                               final t = await showFastTimePicker(context, tIn);
+                               final t = await showFastTimePicker(context, tIn, widget.use24HourFormat);
                                if (t!=null) setModalState(() => tIn = t);
                              },
                              child: Container(
@@ -784,9 +924,9 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                                  children: [
                                    const Text("TIME IN", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue)),
                                    const SizedBox(height: 4),
-                                   Text(tIn.format(context), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                   Text(formatTime(context, tIn, widget.use24HourFormat), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
                                  ],
-                               ),
+                                ),
                              ),
                            ),
                          ),
@@ -794,7 +934,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                          Expanded(
                            child: GestureDetector(
                              onTap: () async {
-                               final t = await showFastTimePicker(context, tOut);
+                               final t = await showFastTimePicker(context, tOut, widget.use24HourFormat);
                                if (t!=null) setModalState(() => tOut = t);
                              },
                              child: Container(
@@ -804,7 +944,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                                  children: [
                                    const Text("TIME OUT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue)),
                                    const SizedBox(height: 4),
-                                   Text(tOut.format(context), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                   Text(formatTime(context, tOut, widget.use24HourFormat), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
                                  ],
                                ),
                              ),
@@ -816,11 +956,13 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                      TextField(
                        controller: manualCtrl,
                        keyboardType: TextInputType.number,
-                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                       decoration: const InputDecoration(
+                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: textColor),
+                       decoration: InputDecoration(
                          labelText: "Enter Amount",
-                         border: OutlineInputBorder(),
-                         prefixText: "₱ "
+                         labelStyle: TextStyle(color: isDark ? Colors.grey : Colors.black),
+                         border: const OutlineInputBorder(),
+                         prefixText: "₱ ",
+                         prefixStyle: TextStyle(color: textColor),
                        ),
                      )
                   ],
@@ -886,12 +1028,21 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
           widget.period.shifts.sort((a, b) => b.date.compareTo(a.date));
           widget.period.lastEdited = DateTime.now();
         });
+        // Save immediately
+        final prefs = SharedPreferences.getInstance().then((p) {
+           // Parent saves on pop
+        });
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color textColor = isDark ? Colors.white : Colors.black87;
+    final Color subTextColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
+    final Color inputBg = isDark ? const Color(0xFF2C2C2C) : Colors.grey[100]!;
+
     return Scaffold(
       appBar: AppBar(
         title: GestureDetector(
@@ -901,7 +1052,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
             children: [
               Text(widget.period.name),
               const SizedBox(width: 4),
-              const Icon(Icons.edit, size: 14, color: Colors.grey),
+              Icon(Icons.edit, size: 14, color: subTextColor),
             ],
           ),
         ),
@@ -912,7 +1063,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               borderRadius: const BorderRadius.vertical(bottom: Radius.circular(30)),
               boxShadow: [
                 BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5))
@@ -923,21 +1074,21 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
+                    color: inputBg,
                     borderRadius: BorderRadius.circular(8)
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text("HOURLY RATE", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                      Text("HOURLY RATE", style: TextStyle(fontWeight: FontWeight.bold, color: subTextColor)),
                       SizedBox(
                         width: 100,
                         child: TextField(
                           controller: _rateController,
                           keyboardType: TextInputType.number,
                           textAlign: TextAlign.right,
-                          decoration: const InputDecoration(border: InputBorder.none, prefixText: "₱ "),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
+                          decoration: InputDecoration(border: InputBorder.none, prefixText: "₱ ", prefixStyle: TextStyle(color: textColor)),
                           onChanged: (val) {
                             setState(() {
                               widget.period.hourlyRate = double.tryParse(val) ?? 50;
@@ -954,16 +1105,16 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                 Text("₱ ${currency.format(widget.period.totalPay)}", 
                   style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.primary)
                 ),
-                const Text("TOTAL PAYOUT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.5)),
+                Text("TOTAL PAYOUT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: subTextColor, letterSpacing: 1.5)),
                 
                 const SizedBox(height: 20),
                 
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _buildStatBox("REGULAR HRS", widget.period.totalRegularHours.toStringAsFixed(1), Colors.black87),
+                    _buildStatBox("REGULAR HRS", widget.period.totalRegularHours.toStringAsFixed(1), textColor, subTextColor),
                     Container(width: 1, height: 30, color: Colors.grey[300]),
-                    _buildStatBox("OVERTIME HRS", widget.period.totalOvertimeHours.toStringAsFixed(1), Colors.blue),
+                    _buildStatBox("OVERTIME HRS", widget.period.totalOvertimeHours.toStringAsFixed(1), Colors.blue, subTextColor),
                   ],
                 )
               ],
@@ -973,7 +1124,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
           // LIST VIEW
           Expanded(
             child: widget.period.shifts.isEmpty 
-              ? Center(child: Text("Tap '+' to add a work day", style: TextStyle(color: Colors.grey[400])))
+              ? Center(child: Text("Tap '+' to add a work day", style: TextStyle(color: subTextColor)))
               : ListView.builder(
                   padding: const EdgeInsets.only(top: 20, bottom: 100, left: 16, right: 16),
                   itemCount: widget.period.shifts.length,
@@ -1007,7 +1158,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: isInside ? Colors.white : Colors.grey[100],
+                            color: Theme.of(context).cardColor,
                             borderRadius: BorderRadius.circular(12),
                             border: isInside ? null : Border.all(color: Colors.grey[300]!),
                           ),
@@ -1016,7 +1167,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: isInside ? Theme.of(context).colorScheme.secondary.withOpacity(0.1) : Colors.grey[200],
+                                  color: isInside ? Theme.of(context).colorScheme.secondary.withOpacity(0.1) : Colors.grey[800],
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Column(
@@ -1042,8 +1193,8 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                                     else
                                       Row(
                                         children: [
-                                          Text("${s.rawTimeIn.format(context)} - ${s.rawTimeOut.format(context)}", 
-                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.grey[800])
+                                          Text("${formatTime(context, s.rawTimeIn, widget.use24HourFormat)} - ${formatTime(context, s.rawTimeOut, widget.use24HourFormat)}", 
+                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textColor)
                                           ),
                                           if (s.paidTimeIn != s.rawTimeIn || s.paidTimeOut != s.rawTimeOut)
                                             const Padding(
@@ -1054,11 +1205,11 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                                       ),
                                     const SizedBox(height: 4),
                                     if (s.isManualPay)
-                                      Text("Flat Pay: ₱${currency.format(s.manualAmount)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))
+                                      Text("Flat Pay: ₱${currency.format(s.manualAmount)}", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textColor))
                                     else
                                       RichText(
                                         text: TextSpan(
-                                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                          style: TextStyle(color: subTextColor, fontSize: 12),
                                           children: [
                                             TextSpan(text: "Reg: ${s.regularHours.toStringAsFixed(1)}"),
                                             if (s.overtimeHours > 0)
@@ -1088,11 +1239,11 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     );
   }
 
-  Widget _buildStatBox(String label, String value, Color valueColor) {
+  Widget _buildStatBox(String label, String value, Color valueColor, Color labelColor) {
     return Column(
       children: [
         Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: valueColor)),
-        Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+        Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: labelColor)),
       ],
     );
   }
