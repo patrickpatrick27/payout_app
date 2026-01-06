@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // For Haptics
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+
+// --- DATA KEY ---
+const String kStorageKey = 'pay_tracker_final_db';
 
 void main() {
   runApp(const PayTrackerApp());
@@ -30,8 +33,8 @@ class PayTrackerApp extends StatelessWidget {
           centerTitle: true,
           backgroundColor: Colors.white,
           elevation: 0,
-          scrolledUnderElevation: 0, // KEEPS IT WHITE WHEN SCROLLING
-          titleTextStyle: TextStyle(color: Colors.black87, fontSize: 20, fontWeight: FontWeight.bold),
+          scrolledUnderElevation: 0,
+          titleTextStyle: TextStyle(color: Colors.black87, fontSize: 18, fontWeight: FontWeight.bold),
           iconTheme: IconThemeData(color: Colors.black87),
         ),
         scaffoldBackgroundColor: const Color(0xFFF5F7FA),
@@ -42,9 +45,9 @@ class PayTrackerApp extends StatelessWidget {
 }
 
 // --- SOUND HELPER ---
-void playClickSound() {
+void playClickSound(BuildContext context) {
+  Feedback.forTap(context);
   SystemSound.play(SystemSoundType.click);
-  HapticFeedback.lightImpact();
 }
 
 // --- LOGIC HELPERS ---
@@ -138,6 +141,7 @@ class PayPeriod {
   String name;
   DateTime start;
   DateTime end;
+  DateTime lastEdited; 
   double hourlyRate;
   List<Shift> shifts;
 
@@ -146,6 +150,7 @@ class PayPeriod {
     required this.name,
     required this.start,
     required this.end,
+    required this.lastEdited,
     required this.hourlyRate,
     required this.shifts,
   });
@@ -155,6 +160,7 @@ class PayPeriod {
         'name': name,
         'start': start.toIso8601String(),
         'end': end.toIso8601String(),
+        'lastEdited': lastEdited.toIso8601String(),
         'hourlyRate': hourlyRate,
         'shifts': shifts.map((s) => s.toJson()).toList(),
       };
@@ -165,6 +171,7 @@ class PayPeriod {
       name: json['name'],
       start: DateTime.parse(json['start']),
       end: DateTime.parse(json['end']),
+      lastEdited: json['lastEdited'] != null ? DateTime.parse(json['lastEdited']) : DateTime.now(),
       hourlyRate: json['hourlyRate'].toDouble(),
       shifts: (json['shifts'] as List).map((s) => Shift.fromJson(s)).toList(),
     );
@@ -194,13 +201,20 @@ class PayPeriod {
     }
     return total;
   }
+  
+  void updateName() {
+    name = "${DateFormat('MMM d, yyyy').format(start)} - ${DateFormat('MMM d, yyyy').format(end)}";
+  }
 }
 
-// --- MODERN PICKERS (WHEEL STYLE) ---
-
+// --- FAST DATE PICKER ---
 Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {DateTime? minDate, DateTime? maxDate}) async {
-  playClickSound();
-  DateTime tempDate = initial;
+  playClickSound(context);
+  DateTime safeInitial = initial;
+  if (minDate != null && initial.isBefore(minDate)) safeInitial = minDate;
+  if (maxDate != null && initial.isAfter(maxDate)) safeInitial = maxDate;
+
+  DateTime tempDate = safeInitial;
   return showModalBottomSheet<DateTime>(
     context: context,
     backgroundColor: Colors.white,
@@ -215,15 +229,12 @@ Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {Da
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  TextButton(
-                    child: const Text('Cancel', style: TextStyle(color: Colors.red)), 
-                    onPressed: () => Navigator.of(context).pop()
-                  ),
+                  TextButton(child: const Text('Cancel', style: TextStyle(color: Colors.red)), onPressed: () => Navigator.of(context).pop()),
                   const Text("Select Date", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   TextButton(
                     child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)), 
                     onPressed: () {
-                      playClickSound();
+                      playClickSound(context);
                       Navigator.of(context).pop(tempDate);
                     }
                   ),
@@ -233,7 +244,7 @@ Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {Da
             Expanded(
               child: CupertinoDatePicker(
                 mode: CupertinoDatePickerMode.date,
-                initialDateTime: initial,
+                initialDateTime: safeInitial,
                 minimumDate: minDate ?? DateTime(2020),
                 maximumDate: maxDate ?? DateTime(2030),
                 onDateTimeChanged: (DateTime newDate) => tempDate = newDate,
@@ -247,9 +258,8 @@ Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {Da
 }
 
 Future<TimeOfDay?> showFastTimePicker(BuildContext context, TimeOfDay initial) async {
-  playClickSound();
+  playClickSound(context);
   Duration tempDuration = Duration(hours: initial.hour, minutes: initial.minute);
-  
   return showModalBottomSheet<TimeOfDay>(
     context: context,
     backgroundColor: Colors.white,
@@ -264,18 +274,13 @@ Future<TimeOfDay?> showFastTimePicker(BuildContext context, TimeOfDay initial) a
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  TextButton(
-                    child: const Text('Cancel', style: TextStyle(color: Colors.red)), 
-                    onPressed: () => Navigator.of(context).pop()
-                  ),
+                  TextButton(child: const Text('Cancel', style: TextStyle(color: Colors.red)), onPressed: () => Navigator.of(context).pop()),
                   const Text("Select Time", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   TextButton(
                     child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)), 
                     onPressed: () {
-                       playClickSound();
-                       Navigator.of(context).pop(
-                         TimeOfDay(hour: tempDuration.inHours % 24, minute: tempDuration.inMinutes % 60)
-                       );
+                       playClickSound(context);
+                       Navigator.of(context).pop(TimeOfDay(hour: tempDuration.inHours % 24, minute: tempDuration.inMinutes % 60));
                     }
                   ),
                 ],
@@ -316,75 +321,183 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
 
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
-    final String? data = prefs.getString('pay_periods_v3'); 
+    final String? data = prefs.getString(kStorageKey);
     if (data != null) {
-      final List<dynamic> decoded = jsonDecode(data);
-      setState(() {
-        periods = decoded.map((e) => PayPeriod.fromJson(e)).toList();
-      });
+      try {
+        final List<dynamic> decoded = jsonDecode(data);
+        setState(() {
+          periods = decoded.map((e) => PayPeriod.fromJson(e)).toList();
+        });
+      } catch (e) {
+        // ignore error
+      }
     }
   }
 
   Future<void> _saveData() async {
     final prefs = await SharedPreferences.getInstance();
     final String data = jsonEncode(periods.map((e) => e.toJson()).toList());
-    await prefs.setString('pay_periods_v3', data);
+    await prefs.setString(kStorageKey, data);
+  }
+
+  // --- SETTINGS ACTIONS ---
+  
+  void _exportData() {
+    StringBuffer sb = StringBuffer();
+
+    for (var p in periods) {
+      sb.writeln("CUTOFF: ${p.name}");
+      sb.writeln("TOTAL PAY: ₱ ${currency.format(p.totalPay)}");
+      sb.writeln("--------------------------------");
+      
+      // Sort shifts by date for cleaner export
+      List<Shift> sortedShifts = List.from(p.shifts);
+      sortedShifts.sort((a,b) => a.date.compareTo(b.date));
+
+      for (var s in sortedShifts) {
+        String dateStr = DateFormat('MMM d').format(s.date);
+        
+        if (s.isManualPay) {
+          sb.writeln("$dateStr: Flat Pay (₱ ${currency.format(s.manualAmount)})");
+        } else {
+          String tIn = s.rawTimeIn.format(context);
+          String tOut = s.rawTimeOut.format(context);
+          sb.writeln("$dateStr: $tIn to $tOut (REG: ${s.regularHours}h, OT: ${s.overtimeHours}h)");
+        }
+      }
+      sb.writeln("\n"); // Empty line between periods
+    }
+
+    Clipboard.setData(ClipboardData(text: sb.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Formatted Report copied to clipboard!"), backgroundColor: Colors.green)
+    );
+  }
+
+  void _deleteAllData() async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Delete Everything?"),
+        content: const Text("This will permanently wipe all your data. This cannot be undone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("DELETE ALL", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+        ],
+      )
+    );
+
+    if (confirm == true) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(kStorageKey);
+      setState(() {
+        periods.clear();
+      });
+      if(!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("All data deleted."), backgroundColor: Colors.red)
+      );
+    }
+  }
+
+  // --- SORTING ---
+  void _sortPeriods(String type) {
+    playClickSound(context);
+    setState(() {
+      if (type == 'newest') {
+        periods.sort((a, b) => b.start.compareTo(a.start)); // Newest (Jan) First
+      } else if (type == 'oldest') {
+        periods.sort((a, b) => a.start.compareTo(b.start)); // Oldest (Dec) First
+      } else if (type == 'edited') {
+        periods.sort((a, b) => b.lastEdited.compareTo(a.lastEdited)); // Recently Edited First
+      }
+    });
+    _saveData();
   }
 
   void _createNewPeriod() async {
-    // 1. Calculate Default 15-Day Logic
     DateTime now = DateTime.now();
     DateTime defaultStart;
-    DateTime defaultEnd;
-
+    
     if (now.day <= 15) {
-      // First half: 1st to 15th
       defaultStart = DateTime(now.year, now.month, 1);
-      defaultEnd = DateTime(now.year, now.month, 15);
     } else {
-      // Second half: 16th to End of Month
       defaultStart = DateTime(now.year, now.month, 16);
-      // Trick to get last day: Day 0 of next month is last day of current
-      defaultEnd = DateTime(now.year, now.month + 1, 0);
     }
 
-    playClickSound();
-    
-    // 2. Show Pickers (pre-filled with smart defaults)
+    playClickSound(context);
     DateTime? start = await showFastDatePicker(context, defaultStart);
     if (start == null) return;
 
     if (!mounted) return;
+    DateTime defaultEnd;
+    int lastDayOfMonth = DateTime(start.year, start.month + 1, 0).day;
+
+    if (start.day <= 15) {
+      defaultEnd = DateTime(start.year, start.month, 15);
+      if (defaultEnd.isBefore(start) || start.day == 15) {
+         defaultEnd = DateTime(start.year, start.month, lastDayOfMonth);
+      }
+    } else {
+      defaultEnd = DateTime(start.year, start.month, lastDayOfMonth);
+    }
+
     DateTime? end = await showFastDatePicker(context, defaultEnd, minDate: start);
     if (end == null) return;
 
     final newPeriod = PayPeriod(
       id: const Uuid().v4(),
-      name: "${DateFormat('MMM d').format(start)} - ${DateFormat('MMM d').format(end)}",
+      name: "${DateFormat('MMM d, yyyy').format(start)} - ${DateFormat('MMM d, yyyy').format(end)}",
       start: start,
       end: end,
+      lastEdited: DateTime.now(),
       hourlyRate: 50.0, 
       shifts: [],
     );
     setState(() {
       periods.insert(0, newPeriod);
+      // Default sort to Newest First
+      periods.sort((a, b) => b.start.compareTo(a.start));
     });
     _saveData();
     _openPeriod(newPeriod);
   }
 
   void _openPeriod(PayPeriod period) async {
-    playClickSound();
+    playClickSound(context);
+    period.lastEdited = DateTime.now();
+    _saveData();
+
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => PeriodDetailScreen(period: period)),
     );
-    _saveData();
+    _saveData(); 
     setState(() {});
   }
 
+  void _editPeriodDates(PayPeriod p) async {
+    playClickSound(context);
+    DateTime? newStart = await showFastDatePicker(context, p.start);
+    if (newStart == null) return;
+
+    if (!mounted) return;
+    DateTime? newEnd = await showFastDatePicker(context, p.end, minDate: newStart);
+    if (newEnd == null) return;
+
+    setState(() {
+      p.start = newStart;
+      p.end = newEnd;
+      p.updateName();
+      p.lastEdited = DateTime.now();
+      // Re-sort after edit
+      periods.sort((a, b) => b.start.compareTo(a.start)); 
+    });
+    _saveData();
+  }
+
   void _deletePeriod(int index) {
-    playClickSound();
+    playClickSound(context);
     setState(() {
       periods.removeAt(index);
     });
@@ -394,7 +507,33 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Pay Dashboard")),
+      appBar: AppBar(
+        title: const Text("Pay Dashboard"),
+        actions: [
+          // SORT MENU
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.sort),
+            onSelected: _sortPeriods,
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(value: 'newest', child: Text('Newest First (Default)')),
+              const PopupMenuItem<String>(value: 'oldest', child: Text('Oldest First')),
+              const PopupMenuItem<String>(value: 'edited', child: Text('Recent Edits')),
+            ],
+          ),
+          // SETTINGS MENU (Export / Delete)
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.settings),
+            onSelected: (val) {
+              if (val == 'export') _exportData();
+              if (val == 'delete') _deleteAllData();
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(value: 'export', child: Row(children: [Icon(Icons.copy, color: Colors.grey), SizedBox(width: 8), Text("Copy Report to Clipboard")])),
+              const PopupMenuItem<String>(value: 'delete', child: Row(children: [Icon(Icons.delete_forever, color: Colors.red), SizedBox(width: 8), Text("Delete All Data", style: TextStyle(color: Colors.red))])),
+            ],
+          ),
+        ],
+      ),
       body: periods.isEmpty
           ? Center(
               child: Column(
@@ -416,9 +555,18 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                 ],
               ),
             )
-          : ListView.builder(
+          : ReorderableListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: periods.length,
+              onReorder: (oldIndex, newIndex) {
+                playClickSound(context);
+                setState(() {
+                  if (newIndex > oldIndex) newIndex -= 1;
+                  final item = periods.removeAt(oldIndex);
+                  periods.insert(newIndex, item);
+                });
+                _saveData();
+              },
               itemBuilder: (context, index) {
                 final p = periods[index];
                 return Dismissible(
@@ -434,7 +582,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                     child: const Icon(Icons.delete, color: Colors.white),
                   ),
                   confirmDismiss: (direction) async {
-                    playClickSound();
+                    playClickSound(context);
                     return await showDialog(
                       context: context,
                       builder: (ctx) => AlertDialog(
@@ -448,6 +596,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                   },
                   onDismissed: (direction) => _deletePeriod(index),
                   child: GestureDetector(
+                    onLongPress: () => _editPeriodDates(p), 
                     onTap: () => _openPeriod(p),
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 12),
@@ -466,7 +615,13 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                                Row(
+                                  children: [
+                                    Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    const SizedBox(width: 5),
+                                    Icon(Icons.edit, size: 12, color: Colors.grey[400])
+                                  ],
+                                ),
                                 const SizedBox(height: 4),
                                 Text("${p.shifts.length} shifts", style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                               ],
@@ -518,14 +673,32 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     _rateController = TextEditingController(text: widget.period.hourlyRate.toString());
   }
 
-  void _showShiftDialog({Shift? existingShift}) async {
-    playClickSound();
+  void _editPeriodDates() async {
+    playClickSound(context);
+    DateTime? newStart = await showFastDatePicker(context, widget.period.start);
+    if (newStart == null) return;
 
-    // SETUP INITIAL VALUES
-    // If adding new, default to Today (if inside range) or Start of period
+    if (!mounted) return;
+    DateTime? newEnd = await showFastDatePicker(context, widget.period.end, minDate: newStart);
+    if (newEnd == null) return;
+
+    setState(() {
+      widget.period.start = newStart;
+      widget.period.end = newEnd;
+      widget.period.updateName();
+      widget.period.lastEdited = DateTime.now();
+    });
+  }
+
+  void _showShiftDialog({Shift? existingShift}) async {
+    playClickSound(context);
+
     DateTime tempDate = existingShift?.date ?? widget.period.start;
-    if (existingShift == null && DateTime.now().isBefore(widget.period.end) && DateTime.now().isAfter(widget.period.start)) {
-      tempDate = DateTime.now();
+    if (existingShift == null) {
+       DateTime now = DateTime.now();
+       if (now.isAfter(widget.period.start) && now.isBefore(widget.period.end)) {
+         tempDate = now;
+       }
     }
 
     TimeOfDay tIn = existingShift?.rawTimeIn ?? const TimeOfDay(hour: 8, minute: 0);
@@ -556,7 +729,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // 1. DATE SELECTOR (EDITABLE NOW)
                   GestureDetector(
                     onTap: () async {
                       DateTime? picked = await showFastDatePicker(context, tempDate);
@@ -579,7 +751,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                   ),
                   const SizedBox(height: 16),
                   
-                  // 2. TOGGLE MANUAL
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -588,7 +759,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                         value: isManual, 
                         activeColor: Colors.blue,
                         onChanged: (val) {
-                          playClickSound();
+                          playClickSound(context);
                           setModalState(() => isManual = val);
                         }
                       ),
@@ -598,7 +769,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                   const Divider(height: 24),
 
                   if (!isManual) ...[
-                     // MODERN TIME PICKERS
                      Row(
                        children: [
                          Expanded(
@@ -668,7 +838,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                       ),
                       child: const Text("SAVE SHIFT", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
                       onPressed: () {
-                         playClickSound();
+                         playClickSound(context);
                          Navigator.pop(context, true);
                       },
                     ),
@@ -682,7 +852,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
       }
     ).then((saved) {
       if (saved == true) {
-        // DUPLICATE CHECK LOGIC
         bool isDuplicate = widget.period.shifts.any((s) => 
           s.id != (existingShift?.id ?? "") && 
           s.date.year == tempDate.year && 
@@ -715,6 +884,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
             ));
           }
           widget.period.shifts.sort((a, b) => b.date.compareTo(a.date));
+          widget.period.lastEdited = DateTime.now();
         });
       }
     });
@@ -723,10 +893,22 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.period.name)),
+      appBar: AppBar(
+        title: GestureDetector(
+          onTap: _editPeriodDates,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(widget.period.name),
+              const SizedBox(width: 4),
+              const Icon(Icons.edit, size: 14, color: Colors.grey),
+            ],
+          ),
+        ),
+      ),
       body: Column(
         children: [
-          // HEADER
+          // FIXED HEADER
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -738,7 +920,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
             ),
             child: Column(
               children: [
-                // Clean Hourly Rate Input
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
@@ -760,6 +941,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                           onChanged: (val) {
                             setState(() {
                               widget.period.hourlyRate = double.tryParse(val) ?? 50;
+                              widget.period.lastEdited = DateTime.now();
                             });
                           },
                         ),
@@ -788,97 +970,107 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
             ),
           ),
 
+          // LIST VIEW
           Expanded(
             child: widget.period.shifts.isEmpty 
               ? Center(child: Text("Tap '+' to add a work day", style: TextStyle(color: Colors.grey[400])))
               : ListView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.only(top: 20, bottom: 100, left: 16, right: 16),
                   itemCount: widget.period.shifts.length,
                   itemBuilder: (ctx, i) {
                     final s = widget.period.shifts[i];
                     bool isInside = !s.date.isBefore(widget.period.start) && !s.date.isAfter(widget.period.end);
                     
-                    return GestureDetector(
-                      onTap: () => _showShiftDialog(existingShift: s), 
-                      child: Container(
+                    return Dismissible(
+                      key: Key(s.id),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
                         margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: isInside ? Colors.white : Colors.grey[100],
-                          borderRadius: BorderRadius.circular(12),
-                          border: isInside ? null : Border.all(color: Colors.grey[300]!),
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(12)
                         ),
-                        child: Row(
-                          children: [
-                            // DATE BOX
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: isInside ? Theme.of(context).colorScheme.secondary.withOpacity(0.1) : Colors.grey[200],
-                                borderRadius: BorderRadius.circular(8),
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      onDismissed: (direction) {
+                        playClickSound(context);
+                        setState(() {
+                          widget.period.shifts.removeAt(i);
+                          widget.period.lastEdited = DateTime.now();
+                        });
+                      },
+                      child: GestureDetector(
+                        onTap: () => _showShiftDialog(existingShift: s), 
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isInside ? Colors.white : Colors.grey[100],
+                            borderRadius: BorderRadius.circular(12),
+                            border: isInside ? null : Border.all(color: Colors.grey[300]!),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: isInside ? Theme.of(context).colorScheme.secondary.withOpacity(0.1) : Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(DateFormat('MMM').format(s.date).toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isInside ? Theme.of(context).colorScheme.secondary : Colors.grey)),
+                                    Text(DateFormat('dd').format(s.date), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isInside ? Theme.of(context).colorScheme.secondary : Colors.grey)),
+                                  ],
+                                ),
                               ),
-                              child: Column(
-                                children: [
-                                  Text(DateFormat('MMM').format(s.date).toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isInside ? Theme.of(context).colorScheme.secondary : Colors.grey)),
-                                  Text(DateFormat('dd').format(s.date), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isInside ? Theme.of(context).colorScheme.secondary : Colors.grey)),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            
-                            // DETAILS
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (s.isManualPay)
-                                    Row(
-                                      children: [
-                                        Icon(Icons.edit_note, color: Colors.orange[800], size: 18),
-                                        const SizedBox(width: 4),
-                                        Text("Manual Adjustment", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange[800])),
-                                      ],
-                                    )
-                                  else
-                                    Row(
-                                      children: [
-                                        Text("${s.rawTimeIn.format(context)} - ${s.rawTimeOut.format(context)}", 
-                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.grey[800])
-                                        ),
-                                        if (s.paidTimeIn != s.rawTimeIn || s.paidTimeOut != s.rawTimeOut)
-                                          const Padding(
-                                            padding: EdgeInsets.only(left: 6),
-                                            child: Icon(Icons.auto_fix_high, size: 14, color: Colors.amber),
-                                          )
-                                      ],
-                                    ),
-                                  
-                                  const SizedBox(height: 4),
-                                  
-                                  if (s.isManualPay)
-                                    Text("Flat Pay: ₱${currency.format(s.manualAmount)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))
-                                  else
-                                    RichText(
-                                      text: TextSpan(
-                                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (s.isManualPay)
+                                      Row(
                                         children: [
-                                          TextSpan(text: "Reg: ${s.regularHours.toStringAsFixed(1)}"),
-                                          if (s.overtimeHours > 0)
-                                            TextSpan(text: " • OT: ${s.overtimeHours.toStringAsFixed(1)}", style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                                        ]
+                                          Icon(Icons.edit_note, color: Colors.orange[800], size: 18),
+                                          const SizedBox(width: 4),
+                                          Text("Manual Adjustment", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange[800])),
+                                        ],
+                                      )
+                                    else
+                                      Row(
+                                        children: [
+                                          Text("${s.rawTimeIn.format(context)} - ${s.rawTimeOut.format(context)}", 
+                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.grey[800])
+                                          ),
+                                          if (s.paidTimeIn != s.rawTimeIn || s.paidTimeOut != s.rawTimeOut)
+                                            const Padding(
+                                              padding: EdgeInsets.only(left: 6),
+                                              child: Icon(Icons.auto_fix_high, size: 14, color: Colors.amber),
+                                            )
+                                        ],
                                       ),
-                                    )
-                                ],
+                                    const SizedBox(height: 4),
+                                    if (s.isManualPay)
+                                      Text("Flat Pay: ₱${currency.format(s.manualAmount)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))
+                                    else
+                                      RichText(
+                                        text: TextSpan(
+                                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                          children: [
+                                            TextSpan(text: "Reg: ${s.regularHours.toStringAsFixed(1)}"),
+                                            if (s.overtimeHours > 0)
+                                              TextSpan(text: " • OT: ${s.overtimeHours.toStringAsFixed(1)}", style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                                          ]
+                                        ),
+                                      )
+                                  ],
+                                ),
                               ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, color: Colors.grey),
-                              onPressed: () {
-                                playClickSound();
-                                setState(() => widget.period.shifts.removeAt(i));
-                              },
-                            )
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     );
