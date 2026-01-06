@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // For Haptics
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -29,6 +30,7 @@ class PayTrackerApp extends StatelessWidget {
           centerTitle: true,
           backgroundColor: Colors.white,
           elevation: 0,
+          scrolledUnderElevation: 0, // KEEPS IT WHITE WHEN SCROLLING
           titleTextStyle: TextStyle(color: Colors.black87, fontSize: 20, fontWeight: FontWeight.bold),
           iconTheme: IconThemeData(color: Colors.black87),
         ),
@@ -37,6 +39,12 @@ class PayTrackerApp extends StatelessWidget {
       home: const PayPeriodListScreen(),
     );
   }
+}
+
+// --- SOUND HELPER ---
+void playClickSound() {
+  SystemSound.play(SystemSoundType.click);
+  HapticFeedback.lightImpact();
 }
 
 // --- LOGIC HELPERS ---
@@ -57,7 +65,6 @@ TimeOfDay roundTime(TimeOfDay time, {required bool isStart}) {
   int h = (roundedMinutes ~/ 60) % 24;
   int m = roundedMinutes % 60;
   
-  // Strict 8:00 AM Rule
   if (isStart && h < 8) {
     return const TimeOfDay(hour: 8, minute: 0);
   }
@@ -72,8 +79,8 @@ class Shift {
   DateTime date;
   TimeOfDay rawTimeIn;
   TimeOfDay rawTimeOut;
-  bool isManualPay; // New: If true, ignore time
-  double manualAmount; // New: User types pay directly
+  bool isManualPay; 
+  double manualAmount;
 
   Shift({
     required this.id,
@@ -110,7 +117,7 @@ class Shift {
   }
 
   double get hoursWorked {
-    if (isManualPay) return 0; // Not calculated by time
+    if (isManualPay) return 0; 
 
     double start = paidTimeIn.hour + paidTimeIn.minute / 60.0;
     double end = paidTimeOut.hour + paidTimeOut.minute / 60.0;
@@ -189,26 +196,39 @@ class PayPeriod {
   }
 }
 
-// --- FAST DATE PICKER (CUPERTINO WHEEL) ---
+// --- MODERN PICKERS (WHEEL STYLE) ---
+
 Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {DateTime? minDate, DateTime? maxDate}) async {
+  playClickSound();
   DateTime tempDate = initial;
   return showModalBottomSheet<DateTime>(
     context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
     builder: (BuildContext builder) {
-      return Container(
-        height: 250,
-        color: Colors.white,
+      return SizedBox(
+        height: 300,
         child: Column(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                CupertinoButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
-                CupertinoButton(
-                  child: const Text('Done', style: TextStyle(fontWeight: FontWeight.bold)), 
-                  onPressed: () => Navigator.of(context).pop(tempDate)
-                ),
-              ],
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    child: const Text('Cancel', style: TextStyle(color: Colors.red)), 
+                    onPressed: () => Navigator.of(context).pop()
+                  ),
+                  const Text("Select Date", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  TextButton(
+                    child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)), 
+                    onPressed: () {
+                      playClickSound();
+                      Navigator.of(context).pop(tempDate);
+                    }
+                  ),
+                ],
+              ),
             ),
             Expanded(
               child: CupertinoDatePicker(
@@ -216,9 +236,56 @@ Future<DateTime?> showFastDatePicker(BuildContext context, DateTime initial, {Da
                 initialDateTime: initial,
                 minimumDate: minDate ?? DateTime(2020),
                 maximumDate: maxDate ?? DateTime(2030),
-                onDateTimeChanged: (DateTime newDate) {
-                  tempDate = newDate;
-                },
+                onDateTimeChanged: (DateTime newDate) => tempDate = newDate,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  );
+}
+
+Future<TimeOfDay?> showFastTimePicker(BuildContext context, TimeOfDay initial) async {
+  playClickSound();
+  Duration tempDuration = Duration(hours: initial.hour, minutes: initial.minute);
+  
+  return showModalBottomSheet<TimeOfDay>(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (BuildContext builder) {
+      return SizedBox(
+        height: 300,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    child: const Text('Cancel', style: TextStyle(color: Colors.red)), 
+                    onPressed: () => Navigator.of(context).pop()
+                  ),
+                  const Text("Select Time", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  TextButton(
+                    child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)), 
+                    onPressed: () {
+                       playClickSound();
+                       Navigator.of(context).pop(
+                         TimeOfDay(hour: tempDuration.inHours % 24, minute: tempDuration.inMinutes % 60)
+                       );
+                    }
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: CupertinoTimerPicker(
+                mode: CupertinoTimerPickerMode.hm,
+                initialTimerDuration: tempDuration,
+                onTimerDurationChanged: (Duration newDuration) => tempDuration = newDuration,
               ),
             ),
           ],
@@ -265,11 +332,30 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   }
 
   void _createNewPeriod() async {
-    DateTime? start = await showFastDatePicker(context, DateTime.now());
+    // 1. Calculate Default 15-Day Logic
+    DateTime now = DateTime.now();
+    DateTime defaultStart;
+    DateTime defaultEnd;
+
+    if (now.day <= 15) {
+      // First half: 1st to 15th
+      defaultStart = DateTime(now.year, now.month, 1);
+      defaultEnd = DateTime(now.year, now.month, 15);
+    } else {
+      // Second half: 16th to End of Month
+      defaultStart = DateTime(now.year, now.month, 16);
+      // Trick to get last day: Day 0 of next month is last day of current
+      defaultEnd = DateTime(now.year, now.month + 1, 0);
+    }
+
+    playClickSound();
+    
+    // 2. Show Pickers (pre-filled with smart defaults)
+    DateTime? start = await showFastDatePicker(context, defaultStart);
     if (start == null) return;
 
     if (!mounted) return;
-    DateTime? end = await showFastDatePicker(context, start.add(const Duration(days: 15)), minDate: start);
+    DateTime? end = await showFastDatePicker(context, defaultEnd, minDate: start);
     if (end == null) return;
 
     final newPeriod = PayPeriod(
@@ -288,6 +374,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   }
 
   void _openPeriod(PayPeriod period) async {
+    playClickSound();
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => PeriodDetailScreen(period: period)),
@@ -297,6 +384,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   }
 
   void _deletePeriod(int index) {
+    playClickSound();
     setState(() {
       periods.removeAt(index);
     });
@@ -346,6 +434,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                     child: const Icon(Icons.delete, color: Colors.white),
                   ),
                   confirmDismiss: (direction) async {
+                    playClickSound();
                     return await showDialog(
                       context: context,
                       builder: (ctx) => AlertDialog(
@@ -387,7 +476,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                               children: [
                                 const Text("TOTAL PAY", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
                                 Text(
-                                  "₱${currency.format(p.totalPay)}", // Shows exact decimals
+                                  "₱${currency.format(p.totalPay)}",
                                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.primary),
                                 ),
                               ],
@@ -430,37 +519,15 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
   }
 
   void _showShiftDialog({Shift? existingShift}) async {
-    DateTime initialDate = existingShift?.date ?? widget.period.start;
-    if (existingShift == null && DateTime.now().isBefore(widget.period.end)) {
-      initialDate = DateTime.now();
-      if (initialDate.isBefore(widget.period.start)) initialDate = widget.period.start;
+    playClickSound();
+
+    // SETUP INITIAL VALUES
+    // If adding new, default to Today (if inside range) or Start of period
+    DateTime tempDate = existingShift?.date ?? widget.period.start;
+    if (existingShift == null && DateTime.now().isBefore(widget.period.end) && DateTime.now().isAfter(widget.period.start)) {
+      tempDate = DateTime.now();
     }
 
-    DateTime? pickedDate = await showFastDatePicker(
-      context, 
-      initialDate,
-      minDate: DateTime(2020),
-      maxDate: DateTime(2030)
-    );
-    if (pickedDate == null) return;
-
-    // Duplicate Check
-    bool isDuplicate = widget.period.shifts.any((s) => 
-      s.id != (existingShift?.id ?? "") && 
-      s.date.year == pickedDate.year && 
-      s.date.month == pickedDate.month && 
-      s.date.day == pickedDate.day
-    );
-
-    if (isDuplicate) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Date already exists! Edit the existing one instead."), backgroundColor: Colors.red),
-      );
-      return;
-    }
-
-    // STATE FOR DIALOG
     TimeOfDay tIn = existingShift?.rawTimeIn ?? const TimeOfDay(hour: 8, minute: 0);
     TimeOfDay tOut = existingShift?.rawTimeOut ?? const TimeOfDay(hour: 17, minute: 0);
     bool isManual = existingShift?.isManualPay ?? false;
@@ -469,63 +536,139 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
             return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 20, right: 20, top: 20),
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(existingShift == null ? "Add Shift" : "Edit Shift", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                  const SizedBox(height: 20),
-                  
-                  // TOGGLE MANUAL
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text("I don't know my time (Enter amount)"),
-                      Switch(value: isManual, onChanged: (val) => setModalState(() => isManual = val)),
+                      Text(existingShift == null ? "Add Shift" : "Edit Shift", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
+                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close))
                     ],
                   ),
-                  const Divider(),
+                  const SizedBox(height: 20),
+
+                  // 1. DATE SELECTOR (EDITABLE NOW)
+                  GestureDetector(
+                    onTap: () async {
+                      DateTime? picked = await showFastDatePicker(context, tempDate);
+                      if (picked != null) setModalState(() => tempDate = picked);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12)),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.calendar_month, color: Colors.blue),
+                          const SizedBox(width: 12),
+                          Text("Date: ", style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold)),
+                          Text(DateFormat('MMM d, yyyy').format(tempDate), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          const Spacer(),
+                          const Icon(Icons.edit, size: 16, color: Colors.grey),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // 2. TOGGLE MANUAL
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("I don't know my time", style: TextStyle(fontWeight: FontWeight.w500)),
+                      Switch(
+                        value: isManual, 
+                        activeColor: Colors.blue,
+                        onChanged: (val) {
+                          playClickSound();
+                          setModalState(() => isManual = val);
+                        }
+                      ),
+                    ],
+                  ),
+                  
+                  const Divider(height: 24),
 
                   if (!isManual) ...[
-                     ListTile(
-                       title: const Text("Time In"),
-                       trailing: Text(tIn.format(context), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                       onTap: () async {
-                         final t = await showTimePicker(context: context, initialTime: tIn);
-                         if (t!=null) setModalState(() => tIn = t);
-                       },
-                     ),
-                     ListTile(
-                       title: const Text("Time Out"),
-                       trailing: Text(tOut.format(context), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                       onTap: () async {
-                         final t = await showTimePicker(context: context, initialTime: tOut);
-                         if (t!=null) setModalState(() => tOut = t);
-                       },
+                     // MODERN TIME PICKERS
+                     Row(
+                       children: [
+                         Expanded(
+                           child: GestureDetector(
+                             onTap: () async {
+                               final t = await showFastTimePicker(context, tIn);
+                               if (t!=null) setModalState(() => tIn = t);
+                             },
+                             child: Container(
+                               padding: const EdgeInsets.all(16),
+                               decoration: BoxDecoration(color: Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blue.withOpacity(0.2))),
+                               child: Column(
+                                 children: [
+                                   const Text("TIME IN", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue)),
+                                   const SizedBox(height: 4),
+                                   Text(tIn.format(context), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                 ],
+                               ),
+                             ),
+                           ),
+                         ),
+                         const SizedBox(width: 12),
+                         Expanded(
+                           child: GestureDetector(
+                             onTap: () async {
+                               final t = await showFastTimePicker(context, tOut);
+                               if (t!=null) setModalState(() => tOut = t);
+                             },
+                             child: Container(
+                               padding: const EdgeInsets.all(16),
+                               decoration: BoxDecoration(color: Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blue.withOpacity(0.2))),
+                               child: Column(
+                                 children: [
+                                   const Text("TIME OUT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue)),
+                                   const SizedBox(height: 4),
+                                   Text(tOut.format(context), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                 ],
+                               ),
+                             ),
+                           ),
+                         ),
+                       ],
                      ),
                   ] else ...[
                      TextField(
                        controller: manualCtrl,
                        keyboardType: TextInputType.number,
+                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                        decoration: const InputDecoration(
-                         labelText: "Total Pay Amount (₱)",
+                         labelText: "Enter Amount",
                          border: OutlineInputBorder(),
                          prefixText: "₱ "
                        ),
                      )
                   ],
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 30),
                   SizedBox(
                     width: double.infinity,
+                    height: 50,
                     child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white),
-                      child: const Text("Save"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary, 
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                      ),
+                      child: const Text("SAVE SHIFT", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
                       onPressed: () {
+                         playClickSound();
                          Navigator.pop(context, true);
                       },
                     ),
@@ -539,9 +682,24 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
       }
     ).then((saved) {
       if (saved == true) {
+        // DUPLICATE CHECK LOGIC
+        bool isDuplicate = widget.period.shifts.any((s) => 
+          s.id != (existingShift?.id ?? "") && 
+          s.date.year == tempDate.year && 
+          s.date.month == tempDate.month && 
+          s.date.day == tempDate.day
+        );
+
+        if (isDuplicate) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Date overlap! Please edit the existing shift."), backgroundColor: Colors.red),
+          );
+          return;
+        }
+
         setState(() {
           if (existingShift != null) {
-            existingShift.date = pickedDate;
+            existingShift.date = tempDate;
             existingShift.rawTimeIn = tIn;
             existingShift.rawTimeOut = tOut;
             existingShift.isManualPay = isManual;
@@ -549,7 +707,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
           } else {
             widget.period.shifts.add(Shift(
               id: const Uuid().v4(),
-              date: pickedDate,
+              date: tempDate,
               rawTimeIn: tIn,
               rawTimeOut: tOut,
               isManualPay: isManual,
@@ -568,7 +726,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
       appBar: AppBar(title: Text(widget.period.name)),
       body: Column(
         children: [
-          // NEW FIXED HEADER
+          // HEADER
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -611,7 +769,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                 ),
                 const SizedBox(height: 20),
                 
-                // TOTAL PAY
                 Text("₱ ${currency.format(widget.period.totalPay)}", 
                   style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.primary)
                 ),
@@ -619,7 +776,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                 
                 const SizedBox(height: 20),
                 
-                // NEW STATS ROW
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
@@ -717,7 +873,10 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete_outline, color: Colors.grey),
-                              onPressed: () => setState(() => widget.period.shifts.removeAt(i)),
+                              onPressed: () {
+                                playClickSound();
+                                setState(() => widget.period.shifts.removeAt(i));
+                              },
                             )
                           ],
                         ),
