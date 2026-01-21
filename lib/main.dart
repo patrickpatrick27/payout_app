@@ -64,7 +64,6 @@ class _PayTrackerAppState extends State<PayTrackerApp> {
     TimeOfDay? shiftEnd
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    // We update state immediately so UI refreshes instantly
     setState(() {
       if (isDark != null) {
         isDarkMode = isDark;
@@ -303,9 +302,13 @@ class PayPeriod {
     for(var s in shifts) if(!s.isManualPay) sum += s.getOvertimeHours(start, end);
     return sum;
   }
+
+  void updateName() {
+    name = "${DateFormat('MMM d, yyyy').format(start)} - ${DateFormat('MMM d, yyyy').format(end)}";
+  }
 }
 
-// --- SETTINGS SCREEN (Fixed State Update) ---
+// --- SETTINGS SCREEN ---
 
 class SettingsScreen extends StatefulWidget {
   final bool isDarkMode;
@@ -332,7 +335,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Local state to show changes immediately within this screen
   late TimeOfDay _localShiftStart;
   late TimeOfDay _localShiftEnd;
 
@@ -348,7 +350,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (isStart) _localShiftStart = newTime;
       else _localShiftEnd = newTime;
     });
-    // Call parent update immediately
     widget.onUpdate(
       shiftStart: isStart ? newTime : null,
       shiftEnd: !isStart ? newTime : null
@@ -855,6 +856,23 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     _rateController = TextEditingController(text: widget.period.hourlyRate.toString());
   }
 
+  void _editPeriodDates() async {
+    playClickSound(context);
+    DateTime? newStart = await showFastDatePicker(context, widget.period.start);
+    if (newStart == null) return;
+
+    if (!mounted) return;
+    DateTime? newEnd = await showFastDatePicker(context, widget.period.end, minDate: newStart);
+    if (newEnd == null) return;
+
+    setState(() {
+      widget.period.start = newStart;
+      widget.period.end = newEnd;
+      widget.period.updateName();
+      widget.period.lastEdited = DateTime.now();
+    });
+  }
+
   void _showShiftDialog({Shift? existingShift}) async {
     playClickSound(context);
 
@@ -1013,7 +1031,19 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     final Color subTextColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.period.name)),
+      appBar: AppBar(
+        title: GestureDetector(
+          onTap: _editPeriodDates,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(widget.period.name),
+              const SizedBox(width: 8),
+              Icon(Icons.edit, size: 16, color: subTextColor),
+            ],
+          ),
+        ),
+      ),
       body: Column(
         children: [
           Container(
