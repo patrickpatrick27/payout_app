@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart'; // Required for Clipboard
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -15,7 +15,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'NAP Box Locator',
-      debugShowCheckedModeBanner: false, // Removes the debug banner
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
@@ -38,7 +38,7 @@ class _MapScreenState extends State<MapScreen> {
   
   // Data State
   List<dynamic> _allLcps = [];
-  List<dynamic> _searchResults = []; // For the drop-down list
+  List<dynamic> _searchResults = []; 
   List<Marker> _markers = [];
   dynamic _selectedLcp;
 
@@ -52,14 +52,13 @@ class _MapScreenState extends State<MapScreen> {
     _loadData();
   }
 
-  // 1. Load Data
   Future<void> _loadData() async {
     try {
       final String response = await rootBundle.loadString('assets/lcp_data.json');
       final List<dynamic> data = json.decode(response);
       setState(() {
         _allLcps = data;
-        _resetToOverview(); // Start clean
+        _resetToOverview(); 
       });
     } catch (e) {
       debugPrint("Error loading data: $e");
@@ -75,18 +74,16 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // 2. MODE: Overview (Show all LCPs)
+  // --- 1. OVERVIEW MODE ---
   void _resetToOverview() {
-    _generateOverviewMarkers(_allLcps); // Show all markers
+    _generateOverviewMarkers(_allLcps);
     setState(() {
       _selectedLcp = null;
       _searchResults.clear();
       _isSearching = false;
     });
-    // Don't move camera automatically here, let user pan/zoom
   }
 
-  // Helper to generate markers for a list of LCPs
   void _generateOverviewMarkers(List<dynamic> lcps) {
     List<Marker> markers = [];
     for (var lcp in lcps) {
@@ -95,14 +92,14 @@ class _MapScreenState extends State<MapScreen> {
         markers.add(
           Marker(
             point: LatLng(firstNp['lat'], firstNp['lng']),
-            width: 40,
-            height: 40,
+            width: 45,
+            height: 45,
             child: GestureDetector(
-              onTap: () => _focusOnLcp(lcp), // User must TAP to see details
+              onTap: () => _focusOnLcp(lcp), 
               child: Icon(
                 Icons.location_on, 
                 color: _getStatusColor(lcp['status']), 
-                size: 40
+                size: 45
               ),
             ),
           ),
@@ -112,9 +109,8 @@ class _MapScreenState extends State<MapScreen> {
     setState(() => _markers = markers);
   }
 
-  // 3. MODE: Focus (Zoom in on one LCP)
+  // --- 2. FOCUS MODE (LCP Selected) ---
   void _focusOnLcp(dynamic lcp) {
-    // 1. Close keyboard and search list
     FocusScope.of(context).unfocus(); 
     setState(() {
       _isSearching = false;
@@ -124,7 +120,6 @@ class _MapScreenState extends State<MapScreen> {
     List<Marker> npMarkers = [];
     List<LatLng> pointsForBounds = [];
 
-    // 2. Create detailed markers for NPs
     for (var np in lcp['nps']) {
       double lat = np['lat'];
       double lng = np['lng'];
@@ -134,28 +129,31 @@ class _MapScreenState extends State<MapScreen> {
       npMarkers.add(
         Marker(
           point: pos,
-          width: 80, // Wider for text
+          width: 80, 
           height: 60,
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.black12),
+          child: GestureDetector(
+            onTap: () => _showNpDetailsBottomSheet(lcp, np),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.black12),
+                  ),
+                  child: Text(
+                    np['name'],
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
                 ),
-                child: Text(
-                  np['name'],
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                Icon(
+                  Icons.radio_button_checked,
+                  color: _getStatusColor(lcp['status']), 
+                  size: 30
                 ),
-              ),
-              Icon(
-                Icons.radio_button_checked,
-                color: _getStatusColor(lcp['status']), 
-                size: 25
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );
@@ -163,7 +161,6 @@ class _MapScreenState extends State<MapScreen> {
 
     setState(() => _markers = npMarkers);
 
-    // 3. Zoom Camera
     if (pointsForBounds.isNotEmpty) {
        double minLat = pointsForBounds.first.latitude;
        double maxLat = pointsForBounds.first.latitude;
@@ -177,7 +174,6 @@ class _MapScreenState extends State<MapScreen> {
          if (p.longitude > maxLng) maxLng = p.longitude;
        }
        
-       // Add slight padding to bounds
        _mapController.fitCamera(
          CameraFit.bounds(
            bounds: LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng)),
@@ -185,61 +181,31 @@ class _MapScreenState extends State<MapScreen> {
          ),
        );
     }
-
-    // 4. Show Details (Only NOW do we show the menu)
-    _showDetailsBottomSheet(lcp);
-  }
-
-  // 4. Search Logic
-  void _onSearchChanged(String query) {
-    if (query.isEmpty) {
-      _resetToOverview();
-      return;
-    }
-
-    setState(() => _isSearching = true);
-
-    final filtered = _allLcps.where((lcp) {
-      final name = lcp['lcp_name'].toString().toLowerCase();
-      final site = lcp['site_name'].toString().toLowerCase();
-      return name.contains(query.toLowerCase()) || site.contains(query.toLowerCase());
-    }).toList();
-
-    setState(() => _searchResults = filtered);
     
-    // Also update map markers to show only matches, BUT DO NOT ZOOM YET
-    _generateOverviewMarkers(filtered);
+    _showLcpListBottomSheet(lcp);
   }
 
-  // 5. Details Menu
-  void _showDetailsBottomSheet(dynamic lcp) {
+  // --- 3. BOTTOM SHEETS ---
+
+  // A. General List
+  void _showLcpListBottomSheet(dynamic lcp) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent, // Floating look
+      backgroundColor: Colors.transparent,
       builder: (context) {
         return DraggableScrollableSheet(
           initialChildSize: 0.4,
           minChildSize: 0.2,
           maxChildSize: 0.6,
           builder: (context, scrollController) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black26)],
-              ),
-              padding: const EdgeInsets.all(16),
+            return _buildSheetContainer(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Center(
-                    child: Container(width: 40, height: 4, 
-                      decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
-                  ),
+                  _buildHandle(),
                   const SizedBox(height: 15),
                   Text(lcp['lcp_name'], style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 5),
                   Text(lcp['site_name'], style: TextStyle(color: Colors.grey[600], fontSize: 16)),
                   const SizedBox(height: 10),
                   Chip(
@@ -247,6 +213,10 @@ class _MapScreenState extends State<MapScreen> {
                     backgroundColor: _getStatusColor(lcp['status']),
                   ),
                   const Divider(),
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8.0),
+                    child: Text("All Network Points:", style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
                   Expanded(
                     child: ListView.builder(
                       controller: scrollController,
@@ -254,10 +224,14 @@ class _MapScreenState extends State<MapScreen> {
                       itemBuilder: (context, index) {
                         var np = lcp['nps'][index];
                         return ListTile(
-                          leading: const Icon(Icons.my_location),
+                          leading: const Icon(Icons.location_on, size: 20),
                           title: Text(np['name']),
                           subtitle: Text("${np['lat']}, ${np['lng']}"),
                           dense: true,
+                          onTap: () {
+                             Navigator.pop(context); 
+                             _showNpDetailsBottomSheet(lcp, np); 
+                          },
                         );
                       },
                     ),
@@ -268,19 +242,175 @@ class _MapScreenState extends State<MapScreen> {
           },
         );
       },
-    ).whenComplete(() {
-      // Optional: When menu closes, stay zoomed in? Or reset?
-      // Uncomment below to auto-reset when closing menu:
-      // _resetToOverview();
-    });
+    );
+  }
+
+  // B. NP Details (With Copy Button)
+  void _showNpDetailsBottomSheet(dynamic lcp, dynamic np) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, 
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black26)],
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: SafeArea( 
+            child: Column(
+              mainAxisSize: MainAxisSize.min, 
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHandle(),
+                const SizedBox(height: 15),
+                
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.blue[50], 
+                                borderRadius: BorderRadius.circular(8)
+                              ),
+                              child: Icon(Icons.radio_button_checked, color: _getStatusColor(lcp['status']), size: 30),
+                            ),
+                            const SizedBox(width: 15),
+                            Expanded( 
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(np['name'], style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                                  Text("Part of ${lcp['lcp_name']}", style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        _buildInfoRow(Icons.place, "Location", lcp['site_name']),
+                        const SizedBox(height: 10),
+                        // ENABLE COPYING HERE
+                        _buildInfoRow(
+                          Icons.map, 
+                          "Coordinates", 
+                          "${np['lat']}, ${np['lng']}",
+                          isCopyable: true
+                        ),
+                        const SizedBox(height: 10),
+                        _buildInfoRow(Icons.info_outline, "Status", lcp['status']),
+                      ],
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                       Navigator.pop(context); 
+                       _showLcpListBottomSheet(lcp); 
+                    },
+                    icon: const Icon(Icons.list),
+                    label: const Text("View All Points in this LCP"),
+                  ),
+                )
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSheetContainer({required Widget child}) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black26)],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: child,
+    );
+  }
+
+  Widget _buildHandle() {
+    return Center(
+      child: Container(width: 40, height: 4, 
+        decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+    );
+  }
+
+  // --- UPDATED UI HELPER WITH COPY BUTTON ---
+  Widget _buildInfoRow(IconData icon, String label, String value, {bool isCopyable = false}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: Colors.grey[600]),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+            ],
+          ),
+        ),
+        if (isCopyable)
+          IconButton(
+            icon: const Icon(Icons.copy, size: 20, color: Colors.blueGrey),
+            tooltip: "Copy Coordinates",
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(), // Removes default padding
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: value));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Coordinates copied to clipboard!"),
+                  duration: Duration(seconds: 1),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  // --- 4. SEARCH & UI ---
+  void _onSearchChanged(String query) {
+    if (query.isEmpty) {
+      _resetToOverview();
+      return;
+    }
+    setState(() => _isSearching = true);
+
+    final filtered = _allLcps.where((lcp) {
+      final name = lcp['lcp_name'].toString().toLowerCase();
+      final site = lcp['site_name'].toString().toLowerCase();
+      return name.contains(query.toLowerCase()) || site.contains(query.toLowerCase());
+    }).toList();
+
+    setState(() => _searchResults = filtered);
+    _generateOverviewMarkers(filtered);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false, 
       body: Stack(
         children: [
-          // 1. THE MAP
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -288,7 +418,6 @@ class _MapScreenState extends State<MapScreen> {
               initialZoom: 13.0,
               interactionOptions: const InteractionOptions(flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
               onTap: (_, __) {
-                 // Tapping map closes search list
                  if (_isSearching) setState(() => _isSearching = false);
                  FocusScope.of(context).unfocus();
               },
@@ -303,14 +432,10 @@ class _MapScreenState extends State<MapScreen> {
             ],
           ),
 
-          // 2. SEARCH INTERFACE
           Positioned(
-            top: 50,
-            left: 15,
-            right: 15,
+            top: 50, left: 15, right: 15,
             child: Column(
               children: [
-                // Search Bar
                 Card(
                   elevation: 4,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -334,18 +459,14 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                     onChanged: _onSearchChanged,
                     onTap: () {
-                       if (_searchController.text.isNotEmpty) {
-                         setState(() => _isSearching = true);
-                       }
+                       if (_searchController.text.isNotEmpty) setState(() => _isSearching = true);
                     },
                   ),
                 ),
-
-                // 3. SEARCH RESULTS LIST (Only visible when searching)
                 if (_isSearching && _searchResults.isNotEmpty)
                   Container(
                     margin: const EdgeInsets.only(top: 5),
-                    height: 250, // Limit height so map is still visible
+                    height: 250, 
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(10),
@@ -361,10 +482,7 @@ class _MapScreenState extends State<MapScreen> {
                           title: Text(lcp['lcp_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
                           subtitle: Text(lcp['site_name'], maxLines: 1, overflow: TextOverflow.ellipsis),
                           leading: Icon(Icons.location_on, color: _getStatusColor(lcp['status'])),
-                          onTap: () {
-                            // HERE is the click-to-go logic
-                            _focusOnLcp(lcp);
-                          },
+                          onTap: () => _focusOnLcp(lcp),
                         );
                       },
                     ),
@@ -373,11 +491,9 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
           
-          // 4. BACK BUTTON (Only when focused)
           if (_selectedLcp != null && !_isSearching)
             Positioned(
-              bottom: 20,
-              right: 20,
+              bottom: 20, right: 20,
               child: FloatingActionButton.extended(
                 onPressed: () {
                    _resetToOverview();
