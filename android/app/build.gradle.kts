@@ -1,75 +1,55 @@
-import java.util.Properties
-import java.io.FileInputStream
+name: Build and Release APK
 
-plugins {
-    id("com.android.application")
-    id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
-    id("dev.flutter.flutter-gradle-plugin")
-}
+on:
+  push:
+    tags:
+      - "v*" # Triggers when you push a tag like v1.0.0
 
-// --- LOAD SIGNING KEYS ---
-val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("key.properties")
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
-}
+permissions:
+  contents: write # REQUIRED for creating releases
 
-android {
-    namespace = "com.example.work_app"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
+    steps:
+      - uses: actions/checkout@v3
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
+      # 1. Setup Java
+      - uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
-    defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.work_app"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
-    }
+      # 2. Setup Flutter
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
 
-    // --- DEFINE SIGNING CONFIG ---
-    signingConfigs {
-        create("release") {
-            keyAlias = keystoreProperties["keyAlias"] as String?
-            keyPassword = keystoreProperties["keyPassword"] as String?
-            storeFile = if (keystoreProperties["storeFile"] != null) {
-                file(keystoreProperties["storeFile"] as String)
-            } else {
-                null
-            }
-            storePassword = keystoreProperties["storePassword"] as String?
-        }
-    }
+      # 3. Restore the Keystore (The Magic Step)
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
 
-    buildTypes {
-        getByName("release") {
-            // Apply the "release" signing config defined above
-            signingConfig = signingConfigs.getByName("release")
-            
-            // Standard release optimizations
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-}
+      # 4. Create key.properties (So Gradle can find the password)
+      - name: Create key.properties
+        run: |
+          echo "storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}" > android/key.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=upload" >> android/key.properties
+          echo "storeFile=upload-keystore.jks" >> android/key.properties
 
-flutter {
-    source = "../.."
-}
+      # 5. Install Dependencies
+      - name: Get Dependencies
+        run: flutter pub get
+
+      # 6. Build APK
+      - name: Build APK
+        run: flutter build apk --release --no-tree-shake-icons
+
+      # 7. Create GitHub Release & Attach APK
+      - name: Release to GitHub
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
