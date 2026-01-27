@@ -16,7 +16,6 @@ class PayPeriodListScreen extends StatefulWidget {
   final bool isDarkMode;
   final TimeOfDay shiftStart;
   final TimeOfDay shiftEnd;
-  // This is the key part that was likely missing/different
   final Function({bool? isDark, bool? is24h, TimeOfDay? shiftStart, TimeOfDay? shiftEnd}) onUpdateSettings;
 
   const PayPeriodListScreen({
@@ -61,7 +60,8 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     await prefs.setString(kStorageKey, data);
   }
 
-  void _exportData() {
+  // --- EXPORT FOR HUMANS ---
+  void _exportReportText() {
     StringBuffer sb = StringBuffer();
     for (var p in periods) {
       sb.writeln("${p.name} (Total: ₱ ${currency.format(p.getTotalPay(widget.shiftStart, widget.shiftEnd))})");
@@ -83,7 +83,63 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       sb.writeln("\n"); 
     }
     Clipboard.setData(ClipboardData(text: sb.toString()));
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Report copied to clipboard!"), backgroundColor: Colors.green));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Readable Report copied!"), backgroundColor: Colors.green));
+  }
+
+  // --- BACKUP FOR APP TRANSFER (JSON) ---
+  void _backupDataJSON() {
+    // 1. Encode the entire list of objects to JSON
+    String jsonString = jsonEncode(periods.map((e) => e.toJson()).toList());
+    
+    // 2. Copy to clipboard
+    Clipboard.setData(ClipboardData(text: jsonString));
+    
+    // 3. Feedback
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Backup Code copied! Paste this into the new app."), 
+        backgroundColor: Colors.teal
+      )
+    );
+  }
+
+  // --- RESTORE FROM BACKUP ---
+  void _restoreDataJSON(String jsonString) {
+    try {
+      // 1. Try decoding the string
+      final List<dynamic> decoded = jsonDecode(jsonString);
+      
+      // 2. Convert to Objects
+      List<PayPeriod> importedPeriods = decoded.map((e) => PayPeriod.fromJson(e)).toList();
+      
+      // 3. Merge Logic (Avoid duplicates based on ID)
+      int addedCount = 0;
+      for (var imported in importedPeriods) {
+        // Check if we already have this period (by ID)
+        bool exists = periods.any((existing) => existing.id == imported.id);
+        if (!exists) {
+          periods.add(imported);
+          addedCount++;
+        }
+      }
+
+      // 4. Save and Sort
+      if (addedCount > 0) {
+        _sortPeriods('newest'); // This saves internally
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Successfully restored $addedCount records!"), backgroundColor: Colors.green)
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("No new data found in backup (Duplicate IDs)."), backgroundColor: Colors.orange)
+        );
+      }
+
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Invalid Backup Code! Error: $e"), backgroundColor: Colors.red)
+      );
+    }
   }
 
   void _deleteAllData() async {
@@ -108,7 +164,9 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   }
 
   void _sortPeriods(String type) {
-    playClickSound(context);
+    // Only play sound if context is valid (prevents errors during background sorting)
+    if (mounted) playClickSound(context); 
+    
     setState(() {
       if (type == 'newest') periods.sort((a, b) => b.start.compareTo(a.start));
       else if (type == 'oldest') periods.sort((a, b) => a.start.compareTo(b.start)); 
@@ -126,7 +184,9 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       shiftEnd: widget.shiftEnd,
       onUpdate: widget.onUpdateSettings,
       onDeleteAll: _deleteAllData,
-      onExport: _exportData,
+      onExportReport: _exportReportText,
+      onBackup: _backupDataJSON,
+      onRestore: _restoreDataJSON,
     )));
   }
 
