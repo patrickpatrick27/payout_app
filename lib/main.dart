@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'utils/constants.dart';
 import 'screens/dashboard_screen.dart';
+import 'services/update_service.dart'; // Import Update Service
 
 void main() {
   runApp(const PayTrackerApp());
@@ -25,6 +26,11 @@ class _PayTrackerAppState extends State<PayTrackerApp> {
   void initState() {
     super.initState();
     _loadSettings();
+
+    // Auto-check for updates after UI builds
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      GithubUpdateService.checkForUpdate(context);
+    });
   }
 
   Future<void> _loadSettings() async {

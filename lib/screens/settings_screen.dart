@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../utils/helpers.dart';
 import '../widgets/custom_pickers.dart';
-import '../utils/constants.dart'; // Needed for keys if you expand later
+import '../utils/constants.dart';
+import '../services/update_service.dart'; // Import Update Service
 
 class SettingsScreen extends StatefulWidget {
   final bool isDarkMode;
@@ -86,6 +87,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 20),
           _buildSectionHeader("DATA MANAGEMENT"),
+          ListTile(
+            tileColor: bg,
+            leading: const Icon(Icons.system_update, color: Colors.blue),
+            title: const Text("Check for Updates"),
+            onTap: () {
+              playClickSound(context);
+              // Show message if no update found
+              GithubUpdateService.checkForUpdate(context, showNoUpdateMsg: true);
+            },
+          ),
           ListTile(
             tileColor: bg,
             leading: const Icon(Icons.copy),

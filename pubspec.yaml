@@ -1,7 +1,7 @@
 name: work_app
 description: "A professional pay tracking application."
 publish_to: 'none'
-version: 1.0.1+1
+version: 1.0.2+1
 
 environment:
   sdk: '>=3.10.3 <4.0.0'
@@ -17,6 +17,11 @@ dependencies:
   intl: ^0.20.2
   # Unique IDs
   uuid: ^4.5.1
+  http: ^1.6.0
+  dio: ^5.9.0
+  package_info_plus: ^9.0.0
+  path_provider: ^2.1.5
+  flutter_app_installer: ^1.0.2
 
 dev_dependencies:
   flutter_test:
