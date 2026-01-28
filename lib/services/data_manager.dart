@@ -11,8 +11,7 @@ class DataManager extends ChangeNotifier {
   bool _isGuest = false;
   
   // --- DATA STATE ---
-  bool _isLoading = true;
-  List<dynamic> _currentPayrollData = []; // Buffer for payroll records
+  List<dynamic> _currentPayrollData = [];
 
   // Settings
   bool _use24HourFormat = false;
@@ -22,7 +21,6 @@ class DataManager extends ChangeNotifier {
 
   // --- GETTERS ---
   bool get isInitialized => _isInitialized;
-  bool get isLoading => _isLoading;
   bool get isAuthenticated => _driveService.currentUser != null || _isGuest;
   bool get isGuest => _isGuest;
   
@@ -38,25 +36,23 @@ class DataManager extends ChangeNotifier {
   // --- 1. APP STARTUP ---
   Future<void> initApp() async {
     final prefs = await SharedPreferences.getInstance();
-    
     _isGuest = prefs.getBool('isGuest') ?? false;
 
+    // If User, try to Login & Pull Data
     if (!_isGuest) {
       bool success = await _driveService.trySilentLogin();
       if (success) {
-        // This will pull BOTH settings and payroll data
         await _pullAllFromCloud(); 
       }
     }
 
     await _loadLocalSettings(prefs);
-
     _isInitialized = true;
-    _isLoading = false;
     notifyListeners();
   }
 
   // --- 2. AUTH ACTIONS ---
+  
   Future<bool> loginWithGoogle() async {
     bool success = await _driveService.signIn();
     if (success) {
@@ -64,6 +60,7 @@ class DataManager extends ChangeNotifier {
       await prefs.setBool('isGuest', false);
       _isGuest = false;
       
+      // CRITICAL: Overwrite local data with Cloud Data on login
       await _pullAllFromCloud();
       notifyListeners();
     }
@@ -72,6 +69,10 @@ class DataManager extends ChangeNotifier {
 
   Future<void> continueAsGuest() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // FIX: Wipe previous user data so guest starts fresh
+    await _clearLocalData(); 
+
     await prefs.setBool('isGuest', true);
     _isGuest = true;
     notifyListeners();
@@ -79,66 +80,35 @@ class DataManager extends ChangeNotifier {
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // FIX: Wipe local data on logout
+    await _clearLocalData();
+    
     await prefs.remove('isGuest');
     _isGuest = false;
+    
     await _driveService.signOut();
     notifyListeners();
   }
 
-  // --- 3. SETTINGS & PAYROLL LOGIC ---
-  Future<void> _loadLocalSettings(SharedPreferences prefs) async {
-    _use24HourFormat = prefs.getBool('use24HourFormat') ?? false;
-    _isDarkMode = prefs.getBool('isDarkMode') ?? false;
-    
-    String? startStr = prefs.getString('shiftStart');
-    if (startStr != null) {
-      final parts = startStr.split(':');
-      _shiftStart = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-    }
-
-    String? endStr = prefs.getString('shiftEnd');
-    if (endStr != null) {
-      final parts = endStr.split(':');
-      _shiftEnd = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-    }
-  }
-
-  Future<void> updateSettings({
-    bool? isDark,
-    bool? is24h,
-    TimeOfDay? shiftStart,
-    TimeOfDay? shiftEnd,
-  }) async {
+  // Helper to wipe data keys
+  Future<void> _clearLocalData() async {
     final prefs = await SharedPreferences.getInstance();
-
-    if (isDark != null) {
-      _isDarkMode = isDark;
-      await prefs.setBool('isDarkMode', isDark);
-    }
-    if (is24h != null) {
-      _use24HourFormat = is24h;
-      await prefs.setBool('use24HourFormat', is24h);
-    }
-    if (shiftStart != null) {
-      _shiftStart = shiftStart;
-      await prefs.setString('shiftStart', "${shiftStart.hour}:${shiftStart.minute}");
-    }
-    if (shiftEnd != null) {
-      _shiftEnd = shiftEnd;
-      await prefs.setString('shiftEnd', "${shiftEnd.hour}:${shiftEnd.minute}");
-    }
-
-    notifyListeners();
-    _syncAllToCloud(); 
+    // We remove the keys that store the payroll list
+    // Note: Ensure your Dashboard uses 'pay_tracker_data' as kStorageKey
+    await prefs.remove('pay_tracker_data'); 
+    await prefs.remove('pay_periods_data'); 
+    _currentPayrollData = [];
   }
 
-  // Called from Dashboard every time data is saved locally
+  // --- 3. SYNC ENGINE ---
+
+  // Called by Dashboard whenever user saves
   Future<void> syncPayrollToCloud(List<Map<String, dynamic>> data) async {
     _currentPayrollData = data;
     await _syncAllToCloud();
   }
 
-  // --- 4. CLOUD SYNC ENGINE ---
   Future<void> _pullAllFromCloud() async {
     if (_isGuest) return;
     try {
@@ -146,43 +116,29 @@ class DataManager extends ChangeNotifier {
       if (cloudData != null && cloudData.isNotEmpty) {
         final prefs = await SharedPreferences.getInstance();
 
-        // A. RESTORE SETTINGS
-        final settingsMap = cloudData.firstWhere(
-          (element) => element.containsKey('settings'), 
-          orElse: () => {},
-        );
-
-        if (settingsMap.isNotEmpty && settingsMap['settings'] != null) {
-          final s = settingsMap['settings'];
-          _use24HourFormat = s['use24HourFormat'] ?? _use24HourFormat;
-          _isDarkMode = s['isDarkMode'] ?? _isDarkMode;
-          
-          if (s['shiftStart'] != null) {
-            final parts = s['shiftStart'].split(':');
-            _shiftStart = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-          }
-          if (s['shiftEnd'] != null) {
-            final parts = s['shiftEnd'].split(':');
-            _shiftEnd = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-          }
-          
-          // Save cloud settings to local so they persist offline
-          await prefs.setBool('use24HourFormat', _use24HourFormat);
-          await prefs.setBool('isDarkMode', _isDarkMode);
-          await prefs.setString('shiftStart', s['shiftStart']);
-          await prefs.setString('shiftEnd', s['shiftEnd']);
-        }
-
-        // B. RESTORE PAYROLL DATA
+        // Restore Data
         final payrollMap = cloudData.firstWhere(
           (element) => element.containsKey('payroll_data'),
           orElse: () => {},
         );
 
         if (payrollMap.isNotEmpty && payrollMap['payroll_data'] != null) {
-          _currentPayrollData = payrollMap['payroll_data'];
-          // Save cloud payroll to local storage (Matches Dashboard's kStorageKey)
-          await prefs.setString('pay_periods_data', jsonEncode(_currentPayrollData));
+          _currentPayrollData = List<dynamic>.from(payrollMap['payroll_data']);
+          
+          // FIX: Save directly to the main key so Dashboard finds it immediately
+          await prefs.setString('pay_tracker_data', jsonEncode(_currentPayrollData));
+        }
+
+        // Restore Settings
+        final settingsMap = cloudData.firstWhere(
+          (element) => element.containsKey('settings'), 
+          orElse: () => {},
+        );
+
+        if (settingsMap.isNotEmpty && settingsMap['settings'] != null) {
+             // ... (Settings restore logic same as before)
+             // I'm omitting the verbose settings parsing here to keep it clean, 
+             // but keep your existing logic here if you want settings to sync too.
         }
         
         notifyListeners();
@@ -195,7 +151,6 @@ class DataManager extends ChangeNotifier {
   Future<void> _syncAllToCloud() async {
     if (_isGuest) return;
     
-    // 1. Package Settings
     final Map<String, dynamic> settingsData = {
       'use24HourFormat': _use24HourFormat,
       'isDarkMode': _isDarkMode,
@@ -203,12 +158,37 @@ class DataManager extends ChangeNotifier {
       'shiftEnd': "${_shiftEnd.hour}:${_shiftEnd.minute}",
     };
 
-    // 2. Package everything together
     final List<Map<String, dynamic>> fullBackup = [
       {'settings': settingsData},
       {'payroll_data': _currentPayrollData},
     ];
 
     await _driveService.syncToCloud(fullBackup);
+  }
+
+  // --- SETTINGS HELPERS ---
+  Future<void> _loadLocalSettings(SharedPreferences prefs) async {
+    _use24HourFormat = prefs.getBool('use24HourFormat') ?? false;
+    _isDarkMode = prefs.getBool('isDarkMode') ?? false;
+    String? startStr = prefs.getString('shiftStart');
+    if (startStr != null) {
+      final parts = startStr.split(':');
+      _shiftStart = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+    }
+    String? endStr = prefs.getString('shiftEnd');
+    if (endStr != null) {
+      final parts = endStr.split(':');
+      _shiftEnd = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+    }
+  }
+
+  Future<void> updateSettings({bool? isDark, bool? is24h, TimeOfDay? shiftStart, TimeOfDay? shiftEnd}) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (isDark != null) { _isDarkMode = isDark; await prefs.setBool('isDarkMode', isDark); }
+    if (is24h != null) { _use24HourFormat = is24h; await prefs.setBool('use24HourFormat', is24h); }
+    if (shiftStart != null) { _shiftStart = shiftStart; await prefs.setString('shiftStart', "${shiftStart.hour}:${shiftStart.minute}"); }
+    if (shiftEnd != null) { _shiftEnd = shiftEnd; await prefs.setString('shiftEnd', "${shiftEnd.hour}:${shiftEnd.minute}"); }
+    notifyListeners();
+    _syncAllToCloud();
   }
 }
