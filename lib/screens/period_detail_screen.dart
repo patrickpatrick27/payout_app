@@ -12,8 +12,8 @@ class PeriodDetailScreen extends StatefulWidget {
   final bool use24HourFormat;
   final TimeOfDay shiftStart;
   final TimeOfDay shiftEnd;
-  final bool hideMoney; // NEW
-  final String currencySymbol; // NEW
+  final bool hideMoney; 
+  final String currencySymbol; 
   
   const PeriodDetailScreen({
     super.key, 
@@ -39,7 +39,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     _rateController = TextEditingController(text: widget.period.hourlyRate.toString());
   }
 
-  // --- Display Helper ---
   String _getMoneyText(double amount) {
     if (widget.hideMoney) return "****.**";
     return "${widget.currencySymbol}${currencyFormatter.format(amount)}";
@@ -207,6 +206,10 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color subTextColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
     final double totalPay = widget.period.getTotalPay(widget.shiftStart, widget.shiftEnd);
+    
+    // Calculate Totals for Header
+    final double totalReg = widget.period.getTotalRegularHours(widget.shiftStart, widget.shiftEnd);
+    final double totalOT = widget.period.getTotalOvertimeHours(widget.shiftStart, widget.shiftEnd);
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.period.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
@@ -231,7 +234,21 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                       Text(".${currencyFormatter.format(totalPay).split('.')[1]}", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.primary.withOpacity(0.7))),
                     ],
                   ),
-                const SizedBox(height: 8),
+                
+                const SizedBox(height: 12),
+                
+                // HOURS SUMMARY ROW (Below Money)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildStatPill("Regular: ${totalReg.toStringAsFixed(1)}h", Colors.grey, isDark),
+                    const SizedBox(width: 10),
+                    _buildStatPill("Overtime: ${totalOT.toStringAsFixed(1)}h", Colors.blue, isDark),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
                 // RATE EDITOR
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -325,6 +342,18 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(onPressed: () => _showShiftDialog(), backgroundColor: Theme.of(context).colorScheme.primary, child: const Icon(CupertinoIcons.add, color: Colors.white)),
+    );
+  }
+
+  Widget _buildStatPill(String text, Color color, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3))
+      ),
+      child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
     );
   }
 

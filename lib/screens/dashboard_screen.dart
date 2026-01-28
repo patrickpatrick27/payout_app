@@ -20,7 +20,6 @@ class PayPeriodListScreen extends StatefulWidget {
   final TimeOfDay shiftStart;
   final TimeOfDay shiftEnd;
   
-  // Updated Callback
   final Function({
     bool? isDark, 
     bool? is24h, 
@@ -67,13 +66,11 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // Load Settings
     setState(() {
       _hideMoney = prefs.getBool('setting_hide_money') ?? false;
       _currencySymbol = prefs.getString('setting_currency_symbol') ?? '₱';
     });
 
-    // Load Data
     String? data = prefs.getString('pay_tracker_data');
     if (data == null) data = prefs.getString(kStorageKey); 
 
@@ -99,7 +96,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     setState(() { _isUnsynced = true; });
   }
 
-  // --- Display Helper ---
   String _getMoneyText(double amount) {
     if (_hideMoney) return "****.**";
     return "$_currencySymbol${currencyFormatter.format(amount)}";
@@ -215,6 +211,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
             title: const Text("Payroll", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5)),
             centerTitle: false, elevation: 0,
             actions: [
+              // 1. SYNC BUTTON
               Stack(
                 alignment: Alignment.topRight,
                 children: [
@@ -226,7 +223,37 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                     Positioned(right: 8, top: 8, child: Container(width: 10, height: 10, decoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle, border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2)))),
                 ],
               ),
+              // 2. SETTINGS
               IconButton(icon: const Icon(CupertinoIcons.settings), onPressed: _openSettings),
+
+              // 3. LOGOUT / PROFILE (RESTORED)
+              PopupMenuButton<String>(
+                offset: const Offset(0, 45),
+                icon: CircleAvatar(
+                  radius: 14,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  backgroundImage: dataManager.userPhoto != null ? NetworkImage(dataManager.userPhoto!) : null,
+                  child: dataManager.userPhoto == null ? const Icon(CupertinoIcons.person_solid, size: 16, color: Colors.white) : null,
+                ),
+                itemBuilder: (context) {
+                  if (dataManager.isGuest) {
+                    return [const PopupMenuItem(value: 'login', child: Text("Log In to Sync"))];
+                  }
+                  return [
+                    PopupMenuItem(enabled: false, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text("Signed in as:", style: TextStyle(fontSize: 10, color: Colors.grey)), Text(dataManager.userEmail ?? "User", style: TextStyle(fontWeight: FontWeight.bold))])),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(value: 'logout', child: Row(children: [Icon(Icons.logout, color: Colors.red, size: 20), SizedBox(width: 8), Text("Logout", style: TextStyle(color: Colors.red))])),
+                  ];
+                },
+                onSelected: (value) {
+                  if (value == 'logout') {
+                    dataManager.logout().then((_) { if (mounted) _loadData(); });
+                  } else if (value == 'login') {
+                     dataManager.logout(); 
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
             ],
           ),
           body: periods.isEmpty
@@ -237,9 +264,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                   itemBuilder: (context, index) {
                     final p = periods[index];
                     final totalPay = p.getTotalPay(widget.shiftStart, widget.shiftEnd);
-                    // Calculate Hours for Summary
-                    final totalReg = p.getTotalRegularHours(widget.shiftStart, widget.shiftEnd);
-                    final totalOT = p.getTotalOvertimeHours(widget.shiftStart, widget.shiftEnd);
 
                     return Dismissible(
                       key: Key(p.id),
@@ -257,30 +281,24 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              // Left Side: Info & Hours Summary
+                              // Left Side: Just Name and Shifts Count (CLEANER)
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                    const SizedBox(height: 8),
-                                    // HOURS SUMMARY ROW
-                                    Row(
-                                      children: [
-                                        _buildMiniTag("${totalReg.toStringAsFixed(1)}h Reg", Colors.grey, Theme.of(context).brightness == Brightness.dark),
-                                        if (totalOT > 0) ...[
-                                           const SizedBox(width: 6),
-                                           _buildMiniTag("${totalOT.toStringAsFixed(1)}h OT", Colors.blue, Theme.of(context).brightness == Brightness.dark),
-                                        ]
-                                      ],
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      "${p.shifts.length} Shifts", 
+                                      style: TextStyle(color: Colors.grey[500], fontSize: 13, fontWeight: FontWeight.w500),
                                     ),
                                   ],
                                 ),
                               ),
                               
-                              // Right Side: Money Container (Constant Width)
+                              // Right Side: Money
                               Container(
-                                width: 110, // Constant Width
+                                width: 110,
                                 padding: const EdgeInsets.symmetric(vertical: 10),
                                 decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
                                 child: Center(
@@ -303,14 +321,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
           floatingActionButton: FloatingActionButton(onPressed: _createNewPeriod, backgroundColor: Theme.of(context).colorScheme.primary, child: const Icon(CupertinoIcons.add, color: Colors.white)),
         );
       },
-    );
-  }
-
-  Widget _buildMiniTag(String text, Color color, bool isDark) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-      child: Text(text, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
     );
   }
 }
