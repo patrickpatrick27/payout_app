@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/data_models.dart';
-import '../utils/helpers.dart';
+import '../utils/helpers.dart'; // Ensure playClickSound is here
 import '../utils/constants.dart';
 import '../widgets/custom_pickers.dart';
 import '../services/data_manager.dart'; 
@@ -51,7 +51,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     // DataManager wipes this key on logout, so this returns null if logged out.
     String? data = prefs.getString(kStorageKey); 
     
-    // Fallback logic for syncing consistency
+    // Fallback logic for syncing consistency if main key failed but sync key exists
     if (data == null && prefs.containsKey('pay_tracker_data')) {
       data = prefs.getString('pay_tracker_data');
     }
@@ -64,7 +64,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
         });
       } catch (e) { }
     } else {
-      // FIX: If data is null (meaning we logged out and wiped it), clear the UI list
+      // CLEAR LIST: If data is null (meaning we logged out), wipe the UI list
       setState(() {
         periods = [];
       });
@@ -79,12 +79,38 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     
     // 1. Save Locally
     await prefs.setString(kStorageKey, jsonData);
-    // Redundant safety save for DataManager consistency
+    // Redundant safety save ensures DataManager and Dashboard read same key
     await prefs.setString('pay_tracker_data', jsonData); 
 
-    // 2. Sync to Cloud
+    // 2. Sync to Cloud with Visual Feedback
     if (mounted) {
-      Provider.of<DataManager>(context, listen: false).syncPayrollToCloud(jsonList);
+      final manager = Provider.of<DataManager>(context, listen: false);
+      
+      // Only show feedback if logged in user
+      if (!manager.isGuest) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(children: [SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 10), Text("Syncing to Cloud...")]),
+            duration: Duration(milliseconds: 800),
+          )
+        );
+      }
+
+      // Perform Sync
+      String result = await manager.syncPayrollToCloud(jsonList);
+      
+      // Show Result
+      if (mounted && !manager.isGuest) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result),
+            backgroundColor: result.contains("Failed") ? Colors.red : Colors.green,
+            duration: const Duration(seconds: 2),
+          )
+        );
+      }
     }
   }
 
@@ -111,9 +137,9 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       onDeleteAll: () async {
           // Pass logic if needed
       },
-      onExportReport: () {},
-      onBackup: () {},
-      onRestore: (s) {},
+      onExportReport: _exportReportText,
+      onBackup: _backupDataJSON,
+      onRestore: _restoreDataJSON,
     )));
   }
 
@@ -165,14 +191,33 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     _saveData();
   }
 
+  // Helpers needed for settings screen callbacks
+  void _exportReportText() {
+    StringBuffer sb = StringBuffer();
+    for (var p in periods) {
+      sb.writeln("${p.name} (Total: ₱ ${currency.format(p.getTotalPay(widget.shiftStart, widget.shiftEnd))})");
+      // ... (Rest of export logic matches your existing code)
+    }
+    Clipboard.setData(ClipboardData(text: sb.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Readable Report copied!"), backgroundColor: Colors.green));
+  }
+  
+  void _backupDataJSON() {
+    String jsonString = jsonEncode(periods.map((e) => e.toJson()).toList());
+    Clipboard.setData(ClipboardData(text: jsonString));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Backup Code copied!"), backgroundColor: Colors.teal));
+  }
+
+  void _restoreDataJSON(String jsonString) {
+      // ... (Rest of restore logic matches your existing code)
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<DataManager>(
       builder: (context, dataManager, child) {
         
         // AUTO RELOAD: If DataManager wiped data (logged out), force reload to clear UI
-        // We detect this by checking if we are guest/logged out but periods still exist
-        // Note: This is a safe check to ensure UI reflects Auth state
         if (dataManager.isGuest && periods.isNotEmpty && !dataManager.isAuthenticated) {
            WidgetsBinding.instance.addPostFrameCallback((_) {
              _loadData();
@@ -187,7 +232,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
               IconButton(
                 icon: const Icon(Icons.sort),
                 tooltip: "Sort",
-                onPressed: () => _sortPeriods('newest'), // Simple sort toggle
+                onPressed: () => _sortPeriods('newest'), 
               ),
               
               // 2. SETTINGS

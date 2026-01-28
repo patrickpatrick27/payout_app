@@ -6,12 +6,10 @@ import 'drive_service.dart';
 class DataManager extends ChangeNotifier {
   final DriveService _driveService = DriveService();
   
-  // --- AUTH STATE ---
+  // --- STATE ---
   bool _isInitialized = false;
   bool _isGuest = false;
-  
-  // --- DATA STATE ---
-  List<dynamic> _currentPayrollData = [];
+  List<dynamic> _currentPayrollData = []; // Buffer for payroll records
 
   // Settings
   bool _use24HourFormat = false;
@@ -38,7 +36,7 @@ class DataManager extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _isGuest = prefs.getBool('isGuest') ?? false;
 
-    // If User, try to Login & Pull Data
+    // If NOT Guest, try Silent Login & Pull Data
     if (!_isGuest) {
       bool success = await _driveService.trySilentLogin();
       if (success) {
@@ -60,7 +58,7 @@ class DataManager extends ChangeNotifier {
       await prefs.setBool('isGuest', false);
       _isGuest = false;
       
-      // CRITICAL: Overwrite local data with Cloud Data on login
+      // Merge: Cloud overwrites local on fresh login
       await _pullAllFromCloud();
       notifyListeners();
     }
@@ -70,7 +68,7 @@ class DataManager extends ChangeNotifier {
   Future<void> continueAsGuest() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // FIX: Wipe previous user data so guest starts fresh
+    // CRITICAL: Wipe any previous user data so guest starts fresh
     await _clearLocalData(); 
 
     await prefs.setBool('isGuest', true);
@@ -81,7 +79,7 @@ class DataManager extends ChangeNotifier {
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // FIX: Wipe local data on logout
+    // CRITICAL: Wipe local data on logout
     await _clearLocalData();
     
     await prefs.remove('isGuest');
@@ -91,11 +89,10 @@ class DataManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Helper to wipe data keys
+  // Helper to completely wipe data keys from phone storage
   Future<void> _clearLocalData() async {
     final prefs = await SharedPreferences.getInstance();
-    // We remove the keys that store the payroll list
-    // Note: Ensure your Dashboard uses 'pay_tracker_data' as kStorageKey
+    // 'pay_tracker_data' is the main key used by Dashboard (kStorageKey)
     await prefs.remove('pay_tracker_data'); 
     await prefs.remove('pay_periods_data'); 
     _currentPayrollData = [];
@@ -103,10 +100,14 @@ class DataManager extends ChangeNotifier {
 
   // --- 3. SYNC ENGINE ---
 
-  // Called by Dashboard whenever user saves
-  Future<void> syncPayrollToCloud(List<Map<String, dynamic>> data) async {
+  // Called by Dashboard. Returns a status string for the UI.
+  Future<String> syncPayrollToCloud(List<Map<String, dynamic>> data) async {
     _currentPayrollData = data;
-    await _syncAllToCloud();
+    
+    if (_isGuest) return "Saved locally (Guest Mode)";
+
+    bool success = await _syncAllToCloud();
+    return success ? "Cloud Backup Complete" : "Cloud Sync Failed";
   }
 
   Future<void> _pullAllFromCloud() async {
@@ -116,7 +117,7 @@ class DataManager extends ChangeNotifier {
       if (cloudData != null && cloudData.isNotEmpty) {
         final prefs = await SharedPreferences.getInstance();
 
-        // Restore Data
+        // A. Restore Data
         final payrollMap = cloudData.firstWhere(
           (element) => element.containsKey('payroll_data'),
           orElse: () => {},
@@ -125,20 +126,35 @@ class DataManager extends ChangeNotifier {
         if (payrollMap.isNotEmpty && payrollMap['payroll_data'] != null) {
           _currentPayrollData = List<dynamic>.from(payrollMap['payroll_data']);
           
-          // FIX: Save directly to the main key so Dashboard finds it immediately
+          // SAVE TO THE KEY DASHBOARD READS
           await prefs.setString('pay_tracker_data', jsonEncode(_currentPayrollData));
         }
 
-        // Restore Settings
+        // B. Restore Settings
         final settingsMap = cloudData.firstWhere(
           (element) => element.containsKey('settings'), 
           orElse: () => {},
         );
 
         if (settingsMap.isNotEmpty && settingsMap['settings'] != null) {
-             // ... (Settings restore logic same as before)
-             // I'm omitting the verbose settings parsing here to keep it clean, 
-             // but keep your existing logic here if you want settings to sync too.
+          final s = settingsMap['settings'];
+          _use24HourFormat = s['use24HourFormat'] ?? _use24HourFormat;
+          _isDarkMode = s['isDarkMode'] ?? _isDarkMode;
+          
+          if (s['shiftStart'] != null) {
+            final parts = s['shiftStart'].split(':');
+            _shiftStart = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+          }
+          if (s['shiftEnd'] != null) {
+            final parts = s['shiftEnd'].split(':');
+            _shiftEnd = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+          }
+          
+          // Persist settings locally
+          await prefs.setBool('use24HourFormat', _use24HourFormat);
+          await prefs.setBool('isDarkMode', _isDarkMode);
+          await prefs.setString('shiftStart', s['shiftStart']);
+          await prefs.setString('shiftEnd', s['shiftEnd']);
         }
         
         notifyListeners();
@@ -148,8 +164,8 @@ class DataManager extends ChangeNotifier {
     }
   }
 
-  Future<void> _syncAllToCloud() async {
-    if (_isGuest) return;
+  Future<bool> _syncAllToCloud() async {
+    if (_isGuest) return false;
     
     final Map<String, dynamic> settingsData = {
       'use24HourFormat': _use24HourFormat,
@@ -163,7 +179,7 @@ class DataManager extends ChangeNotifier {
       {'payroll_data': _currentPayrollData},
     ];
 
-    await _driveService.syncToCloud(fullBackup);
+    return await _driveService.syncToCloud(fullBackup);
   }
 
   // --- SETTINGS HELPERS ---

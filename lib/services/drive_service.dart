@@ -11,7 +11,6 @@ class DriveService {
   drive.DriveApi? _api;
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
 
-  // 1. SILENT LOGIN (On App Startup)
   Future<bool> trySilentLogin() async {
     try {
       final account = await _googleSignIn.signInSilently();
@@ -25,7 +24,6 @@ class DriveService {
     return false;
   }
 
-  // 2. EXPLICIT LOGIN (Login Button)
   Future<bool> signIn() async {
     try {
       final account = await _googleSignIn.signIn();
@@ -39,13 +37,11 @@ class DriveService {
     return false;
   }
 
-  // 3. LOGOUT
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     _api = null;
   }
 
-  // Helper: Setup the Drive API Client
   Future<void> _initializeClient() async {
     final httpClient = await _googleSignIn.authenticatedClient();
     if (httpClient != null) {
@@ -53,12 +49,16 @@ class DriveService {
     }
   }
 
-  // --- DRIVE OPERATIONS (Same as before) ---
+  // --- DRIVE OPERATIONS ---
+
   Future<List<Map<String, dynamic>>?> fetchCloudData() async {
     if (_api == null) return null;
     try {
       final fileId = await _findFileId();
-      if (fileId == null) return null;
+      if (fileId == null) {
+        print("No backup file found on Drive.");
+        return null;
+      }
 
       final media = await _api!.files.get(
         fileId,
@@ -79,8 +79,9 @@ class DriveService {
     }
   }
 
-  Future<void> syncToCloud(List<Map<String, dynamic>> data) async {
-    if (_api == null) return; // Guest mode or not logged in
+  // Returns TRUE if success, FALSE if failed
+  Future<bool> syncToCloud(List<Map<String, dynamic>> data) async {
+    if (_api == null) return false; 
     try {
       final String jsonString = jsonEncode(data);
       final List<int> fileBytes = utf8.encode(jsonString);
@@ -89,25 +90,37 @@ class DriveService {
       final fileId = await _findFileId();
 
       if (fileId != null) {
+        // Update existing file
         await _api!.files.update(drive.File(), fileId, uploadMedia: media);
+        print("Updated existing Drive file: $fileId");
       } else {
+        // Create new file
         final fileMetadata = drive.File()
           ..name = 'pay_tracker_data.json'
-          ..parents = ['appDataFolder'];
+          ..parents = ['appDataFolder']; // HIDDEN FOLDER
+        
         await _api!.files.create(fileMetadata, uploadMedia: media);
+        print("Created new Drive file");
       }
-      print("☁️ Cloud Synced");
+      return true;
     } catch (e) {
       print("Sync Error: $e");
+      return false;
     }
   }
 
   Future<String?> _findFileId() async {
     if (_api == null) return null;
-    final list = await _api!.files.list(
-      spaces: 'appDataFolder',
-      q: "name = 'pay_tracker_data.json' and trashed = false",
-    );
-    return (list.files?.isNotEmpty == true) ? list.files!.first.id : null;
+    try {
+      final list = await _api!.files.list(
+        spaces: 'appDataFolder',
+        q: "name = 'pay_tracker_data.json' and trashed = false",
+        $fields: "files(id, name)",
+      );
+      return (list.files?.isNotEmpty == true) ? list.files!.first.id : null;
+    } catch (e) {
+      print("Find File Error: $e");
+      return null;
+    }
   }
 }
