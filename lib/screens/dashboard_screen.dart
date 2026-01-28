@@ -103,11 +103,16 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       // Show Result
       if (mounted && !manager.isGuest) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        
+        // Truncate message if too long for SnackBar
+        String displayMsg = result;
+        if (displayMsg.length > 80) displayMsg = "${displayMsg.substring(0, 80)}...";
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result),
-            backgroundColor: result.contains("Failed") ? Colors.red : Colors.green,
-            duration: const Duration(seconds: 2),
+            content: Text(displayMsg),
+            backgroundColor: result.contains("Failed") || result.contains("Error") ? Colors.red : Colors.green,
+            duration: const Duration(seconds: 3),
           )
         );
       }

@@ -106,8 +106,11 @@ class DataManager extends ChangeNotifier {
     
     if (_isGuest) return "Saved locally (Guest Mode)";
 
-    bool success = await _syncAllToCloud();
-    return success ? "Cloud Backup Complete" : "Cloud Sync Failed";
+    // Returns specific error message (String?) instead of bool
+    String? error = await _syncAllToCloud();
+    
+    // If error is null, it succeeded. Otherwise, return the error.
+    return error == null ? "Cloud Backup Complete" : "Cloud Sync Failed: $error";
   }
 
   Future<void> _pullAllFromCloud() async {
@@ -164,8 +167,8 @@ class DataManager extends ChangeNotifier {
     }
   }
 
-  Future<bool> _syncAllToCloud() async {
-    if (_isGuest) return false;
+  Future<String?> _syncAllToCloud() async {
+    if (_isGuest) return "Guest Mode";
     
     final Map<String, dynamic> settingsData = {
       'use24HourFormat': _use24HourFormat,
@@ -179,6 +182,7 @@ class DataManager extends ChangeNotifier {
       {'payroll_data': _currentPayrollData},
     ];
 
+    // Expects DriveService to return String? (Error message)
     return await _driveService.syncToCloud(fullBackup);
   }
 
