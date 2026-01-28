@@ -1,49 +1,47 @@
 name: work_app
 description: "A professional pay tracking application."
 publish_to: 'none'
-version: 1.0.16+1
+version: 1.0.17+1
 
 environment:
-  sdk: '>=3.10.3 <4.0.0'
+  sdk: '>=3.3.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
   # UI Icons
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^1.0.6
   # Local Storage
-  shared_preferences: ^2.5.1
+  shared_preferences: ^2.2.2
   # Date Formatting
-  intl: ^0.20.2
+  intl: ^0.19.0
   # Unique IDs
-  uuid: ^4.5.1
-  http: ^1.6.0
-  dio: ^5.9.0
-  package_info_plus: ^9.0.0
-  path_provider: ^2.1.5
+  uuid: ^4.3.3
+  http: ^1.2.0
+  dio: ^5.4.0
+  
+  # --- THE FIX IS HERE ---
+  # Downgraded to 8.0.0 to fix "Incompatible Kotlin Version" error
+  package_info_plus: ^8.0.0 
+  
+  path_provider: ^2.1.2
   flutter_app_installer: ^1.0.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
-  # Icon Generator
   flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
-  
-  # Register the assets folder so the app can see the icon file
   assets:
     - assets/
 
-# Configuration for generating the App Icon
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   image_path: "assets/icon.png"
   min_sdk_android: 21
-  # This hex color matches your App Theme (Indigo)
-  # It prevents the white border on some Android devices
   adaptive_icon_background: "#3F51B5"
   adaptive_icon_foreground: "assets/icon.png"
