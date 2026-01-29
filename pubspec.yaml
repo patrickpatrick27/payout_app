@@ -1,7 +1,7 @@
 name: work_app
 description: "A professional pay tracking application."
 publish_to: 'none'
-version: 1.0.35+1
+version: 1.0.36+1
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

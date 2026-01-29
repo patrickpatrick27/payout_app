@@ -455,7 +455,17 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
             ],
           ),
           body: periods.isEmpty
-              ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(CupertinoIcons.money_dollar_circle, size: 80, color: Colors.grey[300]), const SizedBox(height: 20), Text("No Payrolls Yet", style: TextStyle(color: Colors.grey[600], fontSize: 16)), const SizedBox(height: 10), CupertinoButton(color: Theme.of(context).colorScheme.primary, onPressed: _createNewPeriod, child: const Text("Create New"))]))
+              ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(CupertinoIcons.money_dollar_circle, size: 80, color: Colors.grey[300]), 
+                  const SizedBox(height: 20), 
+                  Text("No Payrolls Yet", style: TextStyle(color: Colors.grey[600], fontSize: 16)), 
+                  const SizedBox(height: 10), 
+                  CupertinoButton(
+                    color: Theme.of(context).colorScheme.primary, 
+                    onPressed: _createNewPeriod, 
+                    child: const Text("Create New", style: TextStyle(color: Colors.white)) 
+                  )
+                ]))
               : ListView.builder(
                   padding: const EdgeInsets.only(top: 10, left: 16, right: 16, bottom: 80),
                   itemCount: periods.length,
@@ -479,7 +489,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              // Left Side: Just Name and Shifts Count
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -493,8 +502,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                                   ],
                                 ),
                               ),
-                              
-                              // Right Side: Money
                               Container(
                                 width: 110,
                                 padding: const EdgeInsets.symmetric(vertical: 10),
