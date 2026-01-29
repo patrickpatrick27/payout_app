@@ -54,37 +54,46 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    // 1. Force Load from Device Storage First
+    _loadLocalData();
+    
+    // 2. Listen to DataManager but ONLY for auth changes, do not auto-overwrite list
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final manager = Provider.of<DataManager>(context, listen: false);
       manager.addListener(() {
-        if (mounted) _loadData();
+        if (mounted && manager.isGuest) {
+           // Only reload if we logged out (clearing privacy/state)
+           // If we logged in, we wait for Manual Sync to resolve conflicts
+           _loadLocalData();
+        }
       });
     });
   }
 
-  Future<void> _loadData() async {
+  // --- LOCAL DATA HANDLING ---
+  Future<void> _loadLocalData() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // 1. LOAD SETTINGS
     setState(() {
       _hideMoney = prefs.getBool('setting_hide_money') ?? false;
       _currencySymbol = prefs.getString('setting_currency_symbol') ?? '₱';
-      // Restore the "Red Dot" state from memory to persist across app restarts
       _isUnsynced = prefs.getBool('is_unsynced') ?? false;
     });
 
-    // 2. LOAD DATA
-    String? data = prefs.getString('pay_tracker_data');
-    if (data == null) data = prefs.getString(kStorageKey); 
+    String? data = prefs.getString('pay_tracker_data'); // Primary storage
+    if (data == null) data = prefs.getString(kStorageKey); // Fallback
 
-    if (data != null) {
+    if (data != null && data.isNotEmpty) {
       try {
         final List<dynamic> decoded = jsonDecode(data);
         setState(() {
           periods = decoded.map((e) => PayPeriod.fromJson(e)).toList();
+          // Default Sort: Newest First
+          periods.sort((a, b) => b.start.compareTo(a.start));
         });
-      } catch (e) { }
+      } catch (e) {
+        print("Error loading local data: $e");
+      }
     } else {
       setState(() { periods = []; });
     }
@@ -95,61 +104,152 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     final List<Map<String, dynamic>> jsonList = periods.map((e) => e.toJson()).toList();
     final String jsonData = jsonEncode(jsonList);
     
-    // Save Data Offline
+    // Save to device immediately
     await prefs.setString(kStorageKey, jsonData);
     await prefs.setString('pay_tracker_data', jsonData);
-
-    // Save "Red Dot" State Offline
     await prefs.setBool('is_unsynced', true);
     
-    setState(() { _isUnsynced = true; });
+    if (mounted) {
+      setState(() { _isUnsynced = true; });
+    }
+  }
+
+  // --- SYNC WITH CONFLICT RESOLUTION ---
+  void _performSyncCheck() async {
+    final manager = Provider.of<DataManager>(context, listen: false);
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(children: [CircularProgressIndicator(strokeWidth: 2), SizedBox(width: 10), Text("Checking Cloud...")]), 
+        duration: Duration(seconds: 1)
+      )
+    );
+
+    try {
+      // 1. Fetch Cloud Data string directly (Bypassing auto-merge)
+      String? cloudJson = await manager.fetchCloudDataOnly(); 
+      
+      if (cloudJson == null || cloudJson.isEmpty) {
+        // No cloud data, just upload local
+        await _uploadLocalToCloud();
+        return;
+      }
+
+      // 2. Compare Local vs Cloud
+      final prefs = await SharedPreferences.getInstance();
+      String localJson = prefs.getString('pay_tracker_data') ?? "[]";
+
+      // Simple string comparison (fastest for small JSONs)
+      if (localJson != cloudJson) {
+        if (mounted) {
+           ScaffoldMessenger.of(context).hideCurrentSnackBar();
+           _showConflictDialog(localJson, cloudJson);
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data is already in sync."), backgroundColor: Colors.green));
+          setState(() { _isUnsynced = false; });
+          await prefs.setBool('is_unsynced', false);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Sync Error: $e"), backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  Future<void> _uploadLocalToCloud() async {
+    final manager = Provider.of<DataManager>(context, listen: false);
+    final List<Map<String, dynamic>> jsonList = periods.map((e) => e.toJson()).toList();
+    
+    bool success = await manager.syncPayrollToCloud(jsonList);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      if (success) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('is_unsynced', false);
+        setState(() => _isUnsynced = false);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cloud Updated Successfully"), backgroundColor: Colors.green));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Upload Failed. Saved Locally."), backgroundColor: Colors.orange));
+      }
+    }
+  }
+
+  void _showConflictDialog(String localJson, String cloudJson) {
+    // Parse to show counts in dialog
+    List localList = jsonDecode(localJson);
+    List cloudList = jsonDecode(cloudJson);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Sync Conflict"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("The data on your device is different from the Cloud."),
+            const SizedBox(height: 16),
+            _buildConflictRow(Icons.phone_android, "This Device", "${localList.length} Cutoffs", Colors.blue),
+            const SizedBox(height: 8),
+            _buildConflictRow(Icons.cloud, "Google Drive", "${cloudList.length} Cutoffs", Colors.orange),
+            const SizedBox(height: 16),
+            const Text("Which version do you want to keep?", style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              // Keep Cloud -> Overwrite Local
+              final List<dynamic> decoded = jsonDecode(cloudJson);
+              setState(() {
+                periods = decoded.map((e) => PayPeriod.fromJson(e)).toList();
+              });
+              await _saveData(); // Save cloud data to local
+              setState(() => _isUnsynced = false); // We are now synced
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Restored from Cloud"), backgroundColor: Colors.blue));
+            },
+            child: const Text("Keep Cloud"),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              // Keep Device -> Overwrite Cloud
+              await _uploadLocalToCloud();
+            },
+            child: const Text("Keep Device"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConflictRow(IconData icon, String label, String sub, Color color) {
+    return Row(
+      children: [
+        Icon(icon, color: color),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text(sub, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        )
+      ],
+    );
   }
 
   String _getMoneyText(double amount) {
     if (_hideMoney) return "****.**";
     return "$_currencySymbol${currencyFormatter.format(amount)}";
-  }
-
-  void _performManualSync() async {
-    final manager = Provider.of<DataManager>(context, listen: false);
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Row(children: [CircularProgressIndicator(strokeWidth: 2), SizedBox(width: 10), Text("Syncing...")]), 
-        duration: Duration(seconds: 1)
-      )
-    );
-
-    final List<Map<String, dynamic>> localJson = periods.map((e) => e.toJson()).toList();
-    
-    // Attempt Sync
-    String result = await manager.smartSync(localJson);
-
-    await _loadData(); // Reload to get any merged changes from cloud
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      
-      final prefs = await SharedPreferences.getInstance();
-
-      if (!result.contains("Error") && !result.toLowerCase().contains("fail")) {
-        // SUCCESS: Clear Red Dot
-        setState(() => _isUnsynced = false);
-        await prefs.setBool('is_unsynced', false);
-        
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(result), 
-          backgroundColor: Colors.green
-        ));
-      } else {
-        // FAIL (Offline): Keep Red Dot & Notify User
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Offline Mode: Data saved to device."), 
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 2),
-        ));
-      }
-    }
   }
 
   void _confirmDeletePeriod(int index) {
@@ -173,9 +273,27 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     if (!mounted) return;
     DateTime? newEnd = await showFastDatePicker(context, period.end, minDate: newStart);
     if (newEnd == null) return;
+
+    // CHECK OVERLAP ON EDIT
+    if (hasDateOverlap(newStart, newEnd, periods, excludeId: period.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Dates overlap with another payroll!"), backgroundColor: Colors.red));
+      return;
+    }
+
     setState(() {
       period.start = newStart; period.end = newEnd;
       period.updateName(); period.lastEdited = DateTime.now();
+    });
+    _saveData();
+  }
+
+  // --- SORTING ---
+  void _sortPeriods(String type) {
+    playClickSound(context);
+    setState(() {
+      if (type == 'newest') periods.sort((a, b) => b.start.compareTo(a.start));
+      else if (type == 'oldest') periods.sort((a, b) => a.start.compareTo(b.start)); 
+      else if (type == 'edited') periods.sort((a, b) => b.lastEdited.compareTo(a.lastEdited));
     });
     _saveData();
   }
@@ -203,8 +321,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       },
       onDeleteAll: () async {
           final prefs = await SharedPreferences.getInstance();
-          await prefs.remove(kStorageKey); await prefs.remove('pay_tracker_data');
-          await prefs.remove('is_unsynced'); 
+          await prefs.remove(kStorageKey); await prefs.remove('pay_tracker_data'); await prefs.remove('is_unsynced');
           setState(() { periods = []; });
           if (mounted) Provider.of<DataManager>(context, listen: false).syncPayrollToCloud([]);
       },
@@ -219,12 +336,20 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     DateTime? start = await showFastDatePicker(context, defaultStart);
     if (start == null) return;
     if (!mounted) return;
+    
     int lastDayOfMonth = DateTime(start.year, start.month + 1, 0).day;
     DateTime defaultEnd = (start.day <= 15) ? DateTime(start.year, start.month, 15) : DateTime(start.year, start.month, lastDayOfMonth);
     if (defaultEnd.isBefore(start)) defaultEnd = DateTime(start.year, start.month, lastDayOfMonth);
+    
     DateTime? end = await showFastDatePicker(context, defaultEnd, minDate: start);
     if (end == null) return;
-    
+
+    // CHECK OVERLAP ON CREATE
+    if (hasDateOverlap(start, end, periods)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: This period overlaps with an existing one."), backgroundColor: Colors.red));
+      return;
+    }
+
     final newPeriod = PayPeriod(
       id: const Uuid().v4(), 
       name: "${DateFormat('MMM d, yyyy').format(start)} - ${DateFormat('MMM d, yyyy').format(end)}", 
@@ -249,7 +374,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     period.lastEdited = DateTime.now();
     _saveData();
     
-    // Pass the _saveData function to the child so it can save immediately
     await Navigator.push(context, MaterialPageRoute(builder: (_) => PeriodDetailScreen(
       period: period, 
       use24HourFormat: widget.use24HourFormat,
@@ -257,7 +381,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       shiftEnd: widget.shiftEnd,
       hideMoney: _hideMoney,
       currencySymbol: _currencySymbol,
-      onSave: _saveData, // <--- CRITICAL FIX for immediate saving
+      onSave: _saveData, 
     )));
     
     _saveData();
@@ -273,23 +397,34 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
             title: const Text("Payroll", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5)),
             centerTitle: false, elevation: 0,
             actions: [
-              // 1. SYNC BUTTON (With Persistent Red Dot)
+              // 1. SYNC BUTTON (Check Conflict)
               Stack(
                 alignment: Alignment.topRight,
                 children: [
                   IconButton(
                     icon: Icon(CupertinoIcons.cloud_upload, color: Theme.of(context).iconTheme.color), 
-                    onPressed: (!dataManager.isGuest) ? _performManualSync : () { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Login required to sync."))); },
+                    onPressed: (!dataManager.isGuest) ? _performSyncCheck : () { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Login required to sync."))); },
                   ),
                   if (_isUnsynced && !dataManager.isGuest)
                     Positioned(right: 8, top: 8, child: Container(width: 10, height: 10, decoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle, border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2)))),
                 ],
               ),
               
-              // 2. SETTINGS
+              // 2. SORT MENU (Restored)
+              PopupMenuButton<String>(
+                icon: const Icon(CupertinoIcons.sort_down),
+                onSelected: _sortPeriods,
+                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(value: 'newest', child: Text('Newest First')),
+                  const PopupMenuItem<String>(value: 'oldest', child: Text('Oldest First')),
+                  const PopupMenuItem<String>(value: 'edited', child: Text('Recently Edited')),
+                ],
+              ),
+
+              // 3. SETTINGS
               IconButton(icon: const Icon(CupertinoIcons.settings), onPressed: _openSettings),
 
-              // 3. PROFILE / LOGOUT (RESTORED)
+              // 4. PROFILE / LOGOUT
               PopupMenuButton<String>(
                 offset: const Offset(0, 45),
                 icon: CircleAvatar(
@@ -310,7 +445,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                 },
                 onSelected: (value) {
                   if (value == 'logout') {
-                    dataManager.logout().then((_) { if (mounted) _loadData(); });
+                    dataManager.logout().then((_) { if (mounted) _loadLocalData(); });
                   } else if (value == 'login') {
                      dataManager.logout(); 
                   }
@@ -344,7 +479,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              // Left Side: Just Name and Shifts Count (Minimalist)
+                              // Left Side: Just Name and Shifts Count
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,

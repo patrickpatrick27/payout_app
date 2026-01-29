@@ -46,7 +46,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     return "${widget.currencySymbol}${currencyFormatter.format(amount)}";
   }
 
-  // Trigger immediate save via callback
+  // Trigger immediate save via callback to Dashboard
   void _saveChanges() {
     widget.period.lastEdited = DateTime.now();
     widget.onSave(); 
@@ -58,7 +58,10 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     DateTime tempDate = existingShift?.date ?? widget.period.start;
     if (existingShift == null) {
       DateTime now = DateTime.now();
-      if (now.isAfter(widget.period.start) && now.isBefore(widget.period.end)) tempDate = now;
+      // Default to today if within period, otherwise start of period
+      if (now.isAfter(widget.period.start) && now.isBefore(widget.period.end)) {
+        tempDate = now;
+      }
     }
 
     TimeOfDay tIn = existingShift?.rawTimeIn ?? widget.shiftStart;
@@ -89,6 +92,8 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
+                  
+                  // DATE PICKER TRIGGER
                   GestureDetector(
                     onTap: () async {
                       DateTime? picked = await showFastDatePicker(context, tempDate);
@@ -107,6 +112,8 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  
+                  // MANUAL PAY SWITCH
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -115,6 +122,8 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                     ],
                   ),
                   const Divider(height: 24),
+                  
+                  // TIME PICKERS OR MANUAL AMOUNT
                   if (!isManual) ...[
                      Row(
                        children: [
@@ -184,17 +193,32 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
       }
     ).then((saved) {
       if (saved == true) {
+        // Prevent Duplicates
         if (existingShift == null && isDuplicateShift(widget.period.shifts, tempDate)) {
            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Date already exists!"), backgroundColor: Colors.red));
            return;
         }
+        
         setState(() {
           if (existingShift != null) {
-            existingShift.date = tempDate; existingShift.rawTimeIn = tIn; existingShift.rawTimeOut = tOut;
-            existingShift.isManualPay = isManual; existingShift.manualAmount = double.tryParse(manualCtrl.text) ?? 0.0;
+            // Update Existing
+            existingShift.date = tempDate; 
+            existingShift.rawTimeIn = tIn; 
+            existingShift.rawTimeOut = tOut;
+            existingShift.isManualPay = isManual; 
+            existingShift.manualAmount = double.tryParse(manualCtrl.text) ?? 0.0;
           } else {
-            widget.period.shifts.add(Shift(id: const Uuid().v4(), date: tempDate, rawTimeIn: tIn, rawTimeOut: tOut, isManualPay: isManual, manualAmount: double.tryParse(manualCtrl.text) ?? 0.0));
+            // Create New
+            widget.period.shifts.add(Shift(
+              id: const Uuid().v4(), 
+              date: tempDate, 
+              rawTimeIn: tIn, 
+              rawTimeOut: tOut, 
+              isManualPay: isManual, 
+              manualAmount: double.tryParse(manualCtrl.text) ?? 0.0
+            ));
           }
+          // Sort shifts by date (Newest first)
           widget.period.shifts.sort((a, b) => b.date.compareTo(a.date));
           
           _saveChanges(); // <--- IMMEDIATE SAVE TRIGGER
@@ -223,9 +247,9 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
   Widget build(BuildContext context) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color subTextColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
-    final double totalPay = widget.period.getTotalPay(widget.shiftStart, widget.shiftEnd);
     
     // Calculate Totals for Header
+    final double totalPay = widget.period.getTotalPay(widget.shiftStart, widget.shiftEnd);
     final double totalReg = widget.period.getTotalRegularHours(widget.shiftStart, widget.shiftEnd);
     final double totalOT = widget.period.getTotalOvertimeHours(widget.shiftStart, widget.shiftEnd);
 
@@ -284,7 +308,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                           onChanged: (val) {
                             setState(() {
                               widget.period.hourlyRate = double.tryParse(val) ?? 50;
-                              _saveChanges(); // <--- IMMEDIATE SAVE TRIGGER
+                              _saveChanges(); // <--- IMMEDIATE SAVE ON RATE CHANGE
                             });
                           },
                         ),
@@ -296,6 +320,8 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
               ],
             ),
           ),
+          
+          // SHIFT LIST
           Expanded(
             child: widget.period.shifts.isEmpty 
               ? Center(child: Text("No shifts added", style: TextStyle(color: subTextColor)))
@@ -304,6 +330,8 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                   itemCount: widget.period.shifts.length,
                   itemBuilder: (ctx, i) {
                     final s = widget.period.shifts[i];
+                    
+                    // Late Logic
                     int lateMins = PayrollCalculator.calculateLateMinutes(s.rawTimeIn, widget.shiftStart);
                     double lateHours = lateMins / 60.0;
 
@@ -311,7 +339,11 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                       key: Key(s.id),
                       direction: DismissDirection.endToStart,
                       background: Container(alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 20), margin: const EdgeInsets.only(bottom: 12), decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(16)), child: const Icon(CupertinoIcons.delete, color: Colors.white)),
-                      confirmDismiss: (d) async { bool confirm = false; await showConfirmationDialog(context: context, title: "Delete Shift?", content: "Remove this work day?", isDestructive: true, onConfirm: () => confirm = true); return confirm; },
+                      confirmDismiss: (d) async { 
+                        bool confirm = false; 
+                        await showConfirmationDialog(context: context, title: "Delete Shift?", content: "Remove this work day?", isDestructive: true, onConfirm: () => confirm = true); 
+                        return confirm; 
+                      },
                       onDismissed: (d) => _confirmDeleteShift(i),
                       child: GestureDetector(
                         onTap: () => _showShiftDialog(existingShift: s), 
@@ -320,6 +352,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                           decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0,2))]),
                           child: Row(
                             children: [
+                              // Date Box
                               Container(
                                 width: 50, padding: const EdgeInsets.symmetric(vertical: 8),
                                 decoration: BoxDecoration(color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], borderRadius: BorderRadius.circular(10)),
@@ -329,6 +362,8 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                                 ]),
                               ),
                               const SizedBox(width: 16),
+                              
+                              // Info Column
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -338,6 +373,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                                     else ...[
                                       Text("${formatTime(context, s.rawTimeIn, widget.use24HourFormat)} - ${formatTime(context, s.rawTimeOut, widget.use24HourFormat)}", style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
                                       const SizedBox(height: 4),
+                                      // Tags: Reg, OT, Late
                                       Row(children: [
                                           _buildTag("Reg: ${s.getRegularHours(widget.shiftStart, widget.shiftEnd).toStringAsFixed(1)}h", Colors.grey, isDark),
                                           if (s.getOvertimeHours(widget.shiftStart, widget.shiftEnd) > 0)

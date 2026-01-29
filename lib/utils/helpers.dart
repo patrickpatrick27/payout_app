@@ -16,14 +16,29 @@ String formatTime(BuildContext context, TimeOfDay time, bool use24h) {
   return DateFormat(use24h ? 'HH:mm' : 'h:mm a').format(dt);
 }
 
-// --- NEW HELPERS ---
+TimeOfDay roundTime(TimeOfDay time, {required bool isStart}) {
+  int totalMinutes = time.hour * 60 + time.minute;
+  int remainder = totalMinutes % 30;
 
-/// Calculates rate per minute (Philippine Labor Code Standard for Lates)
-double calculateMinuteRate(double hourlyRate) {
-  return hourlyRate / 60.0;
+  int roundedMinutes;
+  if (remainder != 0) {
+    if (isStart) {
+      roundedMinutes = totalMinutes + (30 - remainder);
+    } else {
+      roundedMinutes = totalMinutes - remainder;
+    }
+  } else {
+    roundedMinutes = totalMinutes;
+  }
+
+  int h = (roundedMinutes ~/ 60) % 24;
+  int m = roundedMinutes % 60;
+  return TimeOfDay(hour: h, minute: m);
 }
 
-/// Checks if a shift already exists in a list for the same date
+// --- MISSING FUNCTIONS FIXED BELOW ---
+
+/// Checks if a shift already exists for a specific date in the list
 bool isDuplicateShift(List<Shift> existingShifts, DateTime newDate) {
   return existingShifts.any((s) => 
     s.date.year == newDate.year &&
@@ -32,7 +47,30 @@ bool isDuplicateShift(List<Shift> existingShifts, DateTime newDate) {
   );
 }
 
-/// Reusable Confirmation Dialog (For Delete Cutoff / Delete All)
+/// Checks if a new payroll period overlaps with existing ones
+bool hasDateOverlap(DateTime start, DateTime end, List<PayPeriod> existingPeriods, {String? excludeId}) {
+  for (var period in existingPeriods) {
+    if (excludeId != null && period.id == excludeId) continue; // Skip self if editing
+
+    // Overlap Logic: (StartA <= EndB) and (EndA >= StartB)
+    // We use isBefore/isAfter, so we check the inverse
+    if (start.isBefore(period.end) && end.isAfter(period.start)) {
+      return true;
+    }
+    
+    // Check exact boundary matches (inclusive dates)
+    if (isSameDay(start, period.end) || isSameDay(end, period.start) || isSameDay(start, period.start)) {
+      return true; 
+    }
+  }
+  return false;
+}
+
+bool isSameDay(DateTime a, DateTime b) {
+  return a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+// Reusable Dialog
 Future<void> showConfirmationDialog({
   required BuildContext context,
   required String title,
@@ -65,25 +103,4 @@ Future<void> showConfirmationDialog({
       );
     },
   );
-}
-// -------------------
-
-TimeOfDay roundTime(TimeOfDay time, {required bool isStart}) {
-  int totalMinutes = time.hour * 60 + time.minute;
-  int remainder = totalMinutes % 30;
-
-  int roundedMinutes;
-  if (remainder != 0) {
-    if (isStart) {
-      roundedMinutes = totalMinutes + (30 - remainder);
-    } else {
-      roundedMinutes = totalMinutes - remainder;
-    }
-  } else {
-    roundedMinutes = totalMinutes;
-  }
-
-  int h = (roundedMinutes ~/ 60) % 24;
-  int m = roundedMinutes % 60;
-  return TimeOfDay(hour: h, minute: m);
 }
