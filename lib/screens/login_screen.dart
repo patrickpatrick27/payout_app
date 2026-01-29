@@ -58,7 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                "Pay Tracker Pro",
+                "Pay Tracker",
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 28,

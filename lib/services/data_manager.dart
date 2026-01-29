@@ -23,7 +23,7 @@ class DataManager extends ChangeNotifier {
 
   // Getters
   bool get isInitialized => _isInitialized;
-  // User is authenticated if logged in OR in guest mode
+  // CRITICAL FIX: Authenticated if User is logged in OR Guest Mode is active
   bool get isAuthenticated => _currentUser != null || _isGuestMode;
   bool get isGuest => _isGuestMode; 
   

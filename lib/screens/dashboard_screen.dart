@@ -54,16 +54,11 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   @override
   void initState() {
     super.initState();
-    // 1. Force Load from Device Storage First
     _loadLocalData();
-    
-    // 2. Listen to DataManager but ONLY for auth changes, do not auto-overwrite list
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final manager = Provider.of<DataManager>(context, listen: false);
       manager.addListener(() {
-        if (mounted && manager.isGuest) {
-           // Only reload if we logged out (clearing privacy/state)
-           // If we logged in, we wait for Manual Sync to resolve conflicts
+        if (mounted && manager.isAuthenticated) {
            _loadLocalData();
         }
       });
@@ -252,6 +247,8 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     return "$_currencySymbol${currencyFormatter.format(amount)}";
   }
 
+  // --- CRUD ACTIONS ---
+
   void _confirmDeletePeriod(int index) {
     showConfirmationDialog(
       context: context, 
@@ -287,7 +284,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     _saveData();
   }
 
-  // --- SORTING ---
   void _sortPeriods(String type) {
     playClickSound(context);
     setState(() {
@@ -394,7 +390,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       builder: (context, dataManager, child) {
         return Scaffold(
           appBar: AppBar(
-            title: const Text("Payroll", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+            title: const Text("Payroll Tracker", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5)),
             centerTitle: false, elevation: 0,
             actions: [
               // 1. SYNC BUTTON (Check Conflict)
@@ -403,14 +399,16 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                 children: [
                   IconButton(
                     icon: Icon(CupertinoIcons.cloud_upload, color: Theme.of(context).iconTheme.color), 
-                    onPressed: (!dataManager.isGuest) ? _performSyncCheck : () { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Login required to sync."))); },
+                    onPressed: (!dataManager.isGuest) 
+                      ? () => _performSyncCheck() 
+                      : () { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Login required to sync."))); },
                   ),
                   if (_isUnsynced && !dataManager.isGuest)
                     Positioned(right: 8, top: 8, child: Container(width: 10, height: 10, decoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle, border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2)))),
                 ],
               ),
               
-              // 2. SORT MENU (Restored)
+              // 2. SORT MENU
               PopupMenuButton<String>(
                 icon: const Icon(CupertinoIcons.sort_down),
                 onSelected: _sortPeriods,
@@ -463,7 +461,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                   CupertinoButton(
                     color: Theme.of(context).colorScheme.primary, 
                     onPressed: _createNewPeriod, 
-                    child: const Text("Create New", style: TextStyle(color: Colors.white)) 
+                    child: const Text("Create New", style: TextStyle(color: Colors.white)) // FIXED COLOR
                   )
                 ]))
               : ListView.builder(
@@ -477,8 +475,17 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                       key: Key(p.id),
                       direction: DismissDirection.endToStart,
                       background: Container(alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 24), margin: const EdgeInsets.only(bottom: 12), decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(16)), child: const Icon(CupertinoIcons.delete, color: Colors.white)),
-                      confirmDismiss: (dir) async { bool delete = false; await showConfirmationDialog(context: context, title: "Delete?", content: "Remove ${p.name}?", isDestructive: true, onConfirm: () => delete = true); return delete; },
-                      onDismissed: (d) => _confirmDeletePeriod(index),
+                      confirmDismiss: (dir) async { 
+                        bool delete = false; 
+                        await showConfirmationDialog(context: context, title: "Delete?", content: "Remove ${p.name}?", isDestructive: true, onConfirm: () => delete = true); 
+                        return delete; 
+                      },
+                      onDismissed: (d) { 
+                        // FIXED: Direct delete, no second dialog
+                        playClickSound(context);
+                        setState(() { periods.removeAt(index); });
+                        _saveData();
+                      },
                       child: GestureDetector(
                         onTap: () => _openPeriod(p),
                         onLongPress: () { HapticFeedback.mediumImpact(); _editPeriodDates(p); },
@@ -489,6 +496,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
+                              // Left Side: Just Name and Shifts Count
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -502,6 +510,8 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                                   ],
                                 ),
                               ),
+                              
+                              // Right Side: Money
                               Container(
                                 width: 110,
                                 padding: const EdgeInsets.symmetric(vertical: 10),
