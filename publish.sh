@@ -48,7 +48,7 @@ if [ ! -f "$APK_PATH" ]; then
 fi
 
 # 8. Rename and Upload
-NEW_NAME="build/app/outputs/flutter-apk/Kaong_Monitor_$TAG.apk"
+NEW_NAME="NEW_NAME="build/app/outputs/flutter-apk/Pay_Tracker_$TAG.apk"
 mv "$APK_PATH" "$NEW_NAME"
 
 echo "📦 Uploading Release to GitHub..."
