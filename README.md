@@ -33,7 +33,7 @@ The app automates complex payroll rules to eliminate manual errors:
 
 ## 📱 Tech Stack
 
-* **Framework**: [Flutter](https://flutter.dev/) (Dart)
+* **Framework**: Flutter (Dart)
 * **Cloud Backend**: Google Drive API (`googleapis` & `google_sign_in`)
 * **Persistence**: `shared_preferences` (JSON-based local caching)
 * **Formatting**: `intl` (Currency and Date localization)
@@ -44,19 +44,47 @@ The app automates complex payroll rules to eliminate manual errors:
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-* [Flutter SDK](https://docs.flutter.dev/get-started/install) (3.10.0 or higher)
+* Flutter SDK (3.10.0 or higher)
 * A Google Cloud Project (for Drive Sync functionality)
 
 ### 2. Installation
-```bash
-# Clone the repository
-git clone [https://github.com/patrickpatrick27/payout_app.git](https://github.com/patrickpatrick27/payout_app.git)
+1. Clone the repository:
+   `git clone https://github.com/patrickpatrick27/payout_app.git`
+2. Navigate to directory:
+   `cd payout_app`
+3. Install dependencies:
+   `flutter pub get`
+4. Run the app:
+   `flutter run`
 
-# Navigate to directory
-cd payout_app
+### 3. Google Drive Configuration
+To enable the Cloud Sync feature:
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Enable the **Google Drive API**.
+3. Configure your OAuth consent screen and add your Android SHA-1 fingerprint.
+4. Download the `google-services.json` and place it in `android/app/`.
 
-# Install dependencies
-flutter pub get
+---
 
-# Run the app
-flutter run
+## 📊 Calculation Reference
+
+| Scenario | Rule | Logic |
+| :--- | :--- | :--- |
+| **Arrival** | Round Forward | 8:01 AM -> 8:30 AM |
+| **Departure** | Round Backward | 5:29 PM -> 5:00 PM |
+| **Late** | After Shift Start | (Rounded In - Shift Start) |
+| **Overtime** | After Shift End | (Time Out - Shift End) x 1.25 |
+| **Lunch** | 12 PM - 1 PM | -1.0 Hour automatically |
+
+---
+
+## 👤 Author
+
+**Dave Patrick I. Bulaso**
+* GitHub: [@patrickpatrick27](https://github.com/patrickpatrick27)
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
