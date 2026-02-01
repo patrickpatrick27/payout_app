@@ -1,84 +1,62 @@
 # 💰 Pay Tracker
 
-**Pay Tracker** is a robust, offline-first mobile application built with **Flutter** designed to help employees track their work shifts, calculate real-time salary estimates, and manage overtime hours with precision.
+**Pay Tracker** is a robust, cloud-synced payroll assistant built with **Flutter**. It is designed for employees who need more than just a simple timer—providing a custom-built calculation engine that handles strict rounding rules, automatic break deductions, and real-time overtime/late tracking.
 
-It features a custom-built payroll engine that handles time rounding, automatic break deductions, and differential overtime rates.
+With **Google Drive integration**, your data stays private and stays with you, across any device.
 
 ---
 
 ## ✨ Key Features
 
-### 📅 Advanced Shift Management
-* **Pay Period Tracking**: Create and manage distinct pay periods (e.g., Nov 1 - Nov 15).
-* **Smart Sorting**: Sort periods by **Newest**, **Oldest**, or **Recently Edited**.
-* **Manual Pay Injection**: Support for flat-rate payments (bonuses, adjustments) that bypass hourly calculations.
-* **Shift Editing**: Modify existing shifts or retroactive entries with a custom date picker.
+### ☁️ Cloud Sync & Privacy
+* **Google Drive Integration**: Securely backup and sync your shift data across devices using your private Google Drive storage.
+* **Privacy First**: Data is stored in your personal cloud; no third-party servers ever see your financial information.
+* **Offline-First**: Log shifts without internet; the app caches data locally and syncs when you're back online.
 
-### ⚙️ Global Settings & Customization
-* **Custom Schedule**: Define your specific **Shift Start** (e.g., 8:00 AM) and **Shift End** (e.g., 5:00 PM) times.
-* **Theme Support**: Toggle between **Light Mode** and **Dark Mode**.
-* **Time Format**: Full support for **12-hour (AM/PM)** or **24-hour** clock formats.
-* **Data Management**: Options to **Export Data** (copy report to clipboard) or **Wipe Data** locally.
+### ⚙️ Precision Calculation Engine
+The app automates complex payroll rules to eliminate manual errors:
+1. **Smart Time Rounding**: 
+    * **Time In**: Snaps forward to the nearest 30-min mark (e.g., 8:05 AM becomes 8:30 AM).
+    * **Time Out**: Snaps backward to the nearest 30-min mark (e.g., 5:25 PM becomes 5:00 PM).
+2. **Automated Deductions**: 
+    * **Lunch Break**: Automatic 1-hour deduction if the shift spans the 12:00 PM – 1:00 PM window.
+3. **Late & OT Logic**: 
+    * **Late Tracking**: Calculates "Late" minutes if arriving after the set start time.
+    * **Overtime (OT)**: Automatic **1.25x multiplier** for any hours worked past your global Shift End.
 
-### 🧠 The Calculation Engine (How it Works)
-The app uses a specific set of logic to ensure payroll accuracy:
-
-1.  **Regular vs. Overtime**:
-    * **Regular Hours**: Time worked from *Shift Start* to *Shift End*.
-    * **Overtime Hours**: Any time worked *after* the global Shift End time.
-    * **Multiplier**: Overtime is automatically calculated at **1.25x** the hourly rate.
-2.  **Lunch Break Logic**:
-    * The app automatically detects if a shift spans across **12:00 PM – 1:00 PM**.
-    * If covered, **1 hour is automatically deducted** from the total duration.
-3.  **Smart Time Rounding**:
-    * **Time In**: Rounds forward to the nearest 30-minute mark (e.g., 8:10 AM becomes 8:30 AM).
-    * **Time Out**: Rounds backward to the nearest 30-minute mark.
-    * *Note: Arrivals before the Shift Start time are snapped to the Shift Start time (no early overtime).*
+### 🎨 Modern User Experience
+* **Dark Mode**: High-contrast dark theme for easy viewing during late-night shifts.
+* **Global Configuration**: Set your Base Pay, Shift Start, and Shift End once, and the app applies them to all calculations.
+* **Data Management**: Instantly export reports to your clipboard or wipe local data for a fresh start.
 
 ---
 
 ## 📱 Tech Stack
 
-* **Framework**: [Flutter](https://flutter.dev/) & Dart
-* **Architecture**: MVC Pattern with native `setState` management.
-* **Persistence**: [`shared_preferences`](https://pub.dev/packages/shared_preferences) (Local JSON storage).
-* **Utilities**:
-    * [`intl`](https://pub.dev/packages/intl) for Date/Currency formatting.
-    * [`uuid`](https://pub.dev/packages/uuid) for unique ID generation.
+* **Framework**: [Flutter](https://flutter.dev/) (Dart)
+* **Cloud Backend**: Google Drive API (`googleapis` & `google_sign_in`)
+* **Persistence**: `shared_preferences` (JSON-based local caching)
+* **Formatting**: `intl` (Currency and Date localization)
+* **Utilities**: `uuid` (Unique ID generation)
 
 ---
 
-## 🚀 Installation & Setup
+## 🚀 Getting Started
 
-1.  **Clone the repository**
-    ```bash
-    git clone [https://github.com/patrickpatrick27/payout_app.git](https://github.com/patrickpatrick27/payout_app.git)
-    ```
+### 1. Prerequisites
+* [Flutter SDK](https://docs.flutter.dev/get-started/install) (3.10.0 or higher)
+* A Google Cloud Project (for Drive Sync functionality)
 
-2.  **Navigate to the project directory**
-    ```bash
-    cd payout_app
-    ```
+### 2. Installation
+```bash
+# Clone the repository
+git clone [https://github.com/patrickpatrick27/payout_app.git](https://github.com/patrickpatrick27/payout_app.git)
 
-3.  **Install dependencies**
-    ```bash
-    flutter pub get
-    ```
+# Navigate to directory
+cd payout_app
 
-4.  **Run the application**
-    ```bash
-    flutter run
-    ```
+# Install dependencies
+flutter pub get
 
----
-
-## 👤 Author
-
-**Dave Patrick I. Bulaso**
-* GitHub: [@patrickpatrick27](https://github.com/patrickpatrick27)
-
----
-
-## 📄 License
-
-This project is open source and available under the [MIT License](LICENSE).
+# Run the app
+flutter run
