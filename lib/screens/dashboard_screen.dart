@@ -56,10 +56,17 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   String _currencySymbol = '₱';
   String _currentSort = 'newest'; 
 
+  // --- FLUID SCROLL STATE ---
+  final ScrollController _scrollController = ScrollController();
+  double _appBarOpacity = 0.0;
+
   @override
   void initState() {
     super.initState();
     _loadLocalData();
+    // Add listener for fluid scroll
+    _scrollController.addListener(_onScroll);
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final manager = Provider.of<DataManager>(context, listen: false);
       manager.addListener(() {
@@ -68,6 +75,25 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
         }
       });
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // Calculate opacity based on scroll offset
+  void _onScroll() {
+    const double transitionDistance = 100.0; // Distance to fully fade in
+    final double offset = _scrollController.offset;
+    final double newOpacity = (offset / transitionDistance).clamp(0.0, 1.0);
+
+    if ((newOpacity - _appBarOpacity).abs() > 0.01) {
+      setState(() {
+        _appBarOpacity = newOpacity;
+      });
+    }
   }
 
   // --- LOCAL DATA HANDLING ---
@@ -107,7 +133,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     await prefs.setString(kStorageKey, jsonData);
     await prefs.setString('pay_tracker_data', jsonData);
     
-    // Set to true to trigger Red Dot (indicating new local changes)
     await prefs.setBool('is_unsynced', true);
     
     if (mounted) {
@@ -423,17 +448,27 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Primary Color (Violet)
     final primaryColor = Theme.of(context).colorScheme.primary;
-    // Check Brightness directly
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Consumer<DataManager>(
       builder: (context, dataManager, child) {
         return Scaffold(
+          // 1. Extend body so content scrolls behind AppBar
+          extendBodyBehindAppBar: true, 
+          
           appBar: AppBar(
             title: const Text("Pay Tracker", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5)),
-            centerTitle: false, elevation: 0,
+            centerTitle: false, 
+            elevation: 0,
+            
+            // 2. FLUID BACKGROUND: Transparent to Solid Theme Color
+            backgroundColor: Colors.transparent,
+            scrolledUnderElevation: 0,
+            flexibleSpace: Container(
+              color: Theme.of(context).scaffoldBackgroundColor.withOpacity(_appBarOpacity),
+            ),
+            
             actions: [
               Stack(
                 alignment: Alignment.topRight,
@@ -490,13 +525,13 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
               const SizedBox(width: 8),
             ],
           ),
+          
           body: periods.isEmpty
               ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Icon(CupertinoIcons.money_dollar_circle, size: 80, color: Colors.grey[300]), 
                   const SizedBox(height: 20), 
                   Text("No Payrolls Yet", style: TextStyle(color: Colors.grey[600], fontSize: 16)), 
                   const SizedBox(height: 10), 
-                  // UPDATED: Use extended button style for empty state button too for consistency
                   FloatingActionButton.extended(
                     onPressed: _createNewPeriod,
                     backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -508,7 +543,15 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                   )
                 ]))
               : ListView.builder(
-                  padding: const EdgeInsets.only(top: 10, left: 16, right: 16, bottom: 80),
+                  // 3. Attach controller for scroll detection
+                  controller: _scrollController,
+                  // 4. Add Top Padding so items aren't hidden behind AppBar initially
+                  padding: EdgeInsets.only(
+                    top: MediaQuery.of(context).padding.top + kToolbarHeight + 20, 
+                    left: 16, 
+                    right: 16, 
+                    bottom: 80
+                  ),
                   itemCount: periods.length,
                   itemBuilder: (context, index) {
                     final p = periods[index];
@@ -585,7 +628,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                     );
                   },
                 ),
-          // UPDATED: Oval, Outlined, Theme-Aware FAB with Label
           floatingActionButton: FloatingActionButton.extended(
             onPressed: _createNewPeriod,
             label: const Text("Add Payroll", style: TextStyle(fontWeight: FontWeight.bold)),
