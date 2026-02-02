@@ -5,6 +5,7 @@ import '../services/update_service.dart';
 import '../utils/helpers.dart';
 import '../widgets/custom_pickers.dart';
 import '../services/data_manager.dart';
+import '../services/audio_service.dart'; // NEW: Import AudioService
 
 class SettingsScreen extends StatefulWidget {
   final bool isDarkMode;
@@ -17,7 +18,7 @@ class SettingsScreen extends StatefulWidget {
   final Function({
     bool? isDark, bool? is24h, bool? hideMoney, 
     String? currencySymbol, TimeOfDay? shiftStart, TimeOfDay? shiftEnd,
-    bool? enableLate, bool? enableOt, double? defaultRate // ADDED defaultRate
+    bool? enableLate, bool? enableOt, double? defaultRate 
   }) onUpdate;
 
   final VoidCallback onDeleteAll; 
@@ -47,9 +48,10 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late TimeOfDay _localShiftStart;
   late TimeOfDay _localShiftEnd;
-  late TextEditingController _rateController; // Controller for Base Pay
+  late TextEditingController _rateController; 
   final List<String> _currencies = ['₱', '\$', '€', '£', '¥', '₩', '₹', 'Rp'];
   bool _updateAvailable = false; 
+  bool _isMuted = false; // NEW: Local state for mute
 
   @override
   void initState() {
@@ -57,10 +59,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _localShiftStart = widget.shiftStart;
     _localShiftEnd = widget.shiftEnd;
     
-    // Initialize controller with current global rate from DataManager
     final manager = Provider.of<DataManager>(context, listen: false);
     _rateController = TextEditingController(text: manager.defaultHourlyRate.toStringAsFixed(0));
     
+    // NEW: Load initial mute state
+    _isMuted = AudioService().isMuted;
+
     _checkForUpdates();
   }
 
@@ -220,6 +224,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           const SizedBox(height: 20),
+          // --- NEW: SOUNDS SECTION ---
+          _buildSectionHeader("SOUNDS"),
+          SwitchListTile(
+            title: const Text("Mute Sound Effects"),
+            subtitle: const Text("Disable clicks and success sounds"),
+            secondary: Icon(
+              _isMuted ? CupertinoIcons.speaker_slash_fill : CupertinoIcons.speaker_2_fill,
+              color: Theme.of(context).iconTheme.color,
+            ),
+            value: _isMuted,
+            tileColor: bg,
+            onChanged: (val) async {
+              await AudioService().toggleMute();
+              setState(() {
+                _isMuted = val;
+              });
+            },
+          ),
+
+          const SizedBox(height: 20),
           _buildSectionHeader("DISPLAY & PRIVACY"),
           SwitchListTile(title: const Text("Dark Mode"), value: widget.isDarkMode, tileColor: bg, onChanged: (val) => widget.onUpdate(isDark: val)),
           SwitchListTile(title: const Text("24-Hour Format"), value: widget.use24HourFormat, tileColor: bg, onChanged: (val) => widget.onUpdate(is24h: val)),
@@ -249,13 +273,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ) 
                 : null,
             onTap: () { 
-              playClickSound(context); 
+              // UPDATED: Use AudioService to respect mute setting
+              AudioService().playClick(); 
               GithubUpdateService.checkForUpdate(context, showNoUpdateMsg: true); 
             },
           ),
-          ListTile(tileColor: bg, leading: const Icon(Icons.description, color: Colors.purple), title: const Text("Copy Text Report"), subtitle: const Text("For humans (WhatsApp/Email)", style: TextStyle(fontSize: 10)), onTap: widget.onExportReport),
-          ListTile(tileColor: bg, leading: const Icon(Icons.save, color: Colors.teal), title: const Text("Backup Data (JSON)"), subtitle: const Text("For switching apps (Save this code!)", style: TextStyle(fontSize: 10)), onTap: widget.onBackup),
-          ListTile(tileColor: bg, leading: const Icon(Icons.restore, color: Colors.orange), title: const Text("Restore Backup"), onTap: () { playClickSound(context); _showRestoreDialog(context); }),
+          ListTile(
+            tileColor: bg, 
+            leading: const Icon(Icons.description, color: Colors.purple), 
+            title: const Text("Copy Text Report"), 
+            subtitle: const Text("For humans (WhatsApp/Email)", style: TextStyle(fontSize: 10)), 
+            onTap: widget.onExportReport
+          ),
+          ListTile(
+            tileColor: bg, 
+            leading: const Icon(Icons.save, color: Colors.teal), 
+            title: const Text("Backup Data (JSON)"), 
+            subtitle: const Text("For switching apps (Save this code!)", style: TextStyle(fontSize: 10)), 
+            onTap: widget.onBackup
+          ),
+          ListTile(
+            tileColor: bg, 
+            leading: const Icon(Icons.restore, color: Colors.orange), 
+            title: const Text("Restore Backup"), 
+            onTap: () { 
+              // UPDATED: Use AudioService
+              AudioService().playClick(); 
+              _showRestoreDialog(context); 
+            }
+          ),
           
           const SizedBox(height: 20),
           _buildSectionHeader("DANGER ZONE"),
@@ -291,7 +337,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return ListTile(
       tileColor: Theme.of(context).cardColor, title: Text(title),
       trailing: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: Text(formatTime(context, current, widget.use24HourFormat), style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary))),
-      onTap: () async { playClickSound(context); final t = await showFastTimePicker(context, current, widget.use24HourFormat); if (t != null) onSelect(t); },
+      onTap: () async { 
+        // UPDATED: Use AudioService
+        AudioService().playClick(); 
+        final t = await showFastTimePicker(context, current, widget.use24HourFormat); 
+        if (t != null) onSelect(t); 
+      },
     );
   }
 }

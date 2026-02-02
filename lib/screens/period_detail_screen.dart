@@ -227,6 +227,8 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     final double hourlyRate = dataManager.defaultHourlyRate;
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color subTextColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
+    // Primary Color (Violet)
+    final primaryColor = Theme.of(context).colorScheme.primary;
     
     final double totalPay = widget.period.getTotalPay(
       widget.shiftStart, widget.shiftEnd, 
@@ -384,7 +386,18 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(onPressed: () => _showShiftDialog(), backgroundColor: Theme.of(context).colorScheme.primary, child: const Icon(CupertinoIcons.add, color: Colors.white)),
+      // UPDATED: Oval, Outlined, Theme-Aware FAB with Label
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showShiftDialog(),
+        label: const Text("Add Shift", style: TextStyle(fontWeight: FontWeight.bold)),
+        icon: const Icon(CupertinoIcons.add),
+        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        foregroundColor: primaryColor,
+        elevation: 6,
+        shape: StadiumBorder(
+          side: BorderSide(color: primaryColor, width: 2.0)
+        ),
+      ),
     );
   }
 

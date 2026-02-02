@@ -54,6 +54,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   // Settings State
   bool _hideMoney = false;
   String _currencySymbol = '₱';
+  String _currentSort = 'newest'; 
 
   @override
   void initState() {
@@ -77,6 +78,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       _hideMoney = prefs.getBool('setting_hide_money') ?? false;
       _currencySymbol = prefs.getString('setting_currency_symbol') ?? '₱';
       _isUnsynced = prefs.getBool('is_unsynced') ?? false;
+      _currentSort = prefs.getString('setting_sort_order') ?? 'newest';
     });
 
     String? data = prefs.getString('pay_tracker_data');
@@ -87,7 +89,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
         final List<dynamic> decoded = jsonDecode(data);
         setState(() {
           periods = decoded.map((e) => PayPeriod.fromJson(e)).toList();
-          periods.sort((a, b) => b.start.compareTo(a.start));
+          _applySort(); 
         });
       } catch (e) {
         print("Error loading local data: $e");
@@ -104,6 +106,8 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     
     await prefs.setString(kStorageKey, jsonData);
     await prefs.setString('pay_tracker_data', jsonData);
+    
+    // Set to true to trigger Red Dot (indicating new local changes)
     await prefs.setBool('is_unsynced', true);
     
     if (mounted) {
@@ -173,9 +177,22 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     }
   }
 
+  int _countTotalShifts(List<dynamic> periodList) {
+    int total = 0;
+    for (var p in periodList) {
+      if (p['shifts'] != null) {
+        total += (p['shifts'] as List).length;
+      }
+    }
+    return total;
+  }
+
   void _showConflictDialog(String localJson, String cloudJson) {
     List localList = jsonDecode(localJson);
     List cloudList = jsonDecode(cloudJson);
+
+    int localShifts = _countTotalShifts(localList);
+    int cloudShifts = _countTotalShifts(cloudList);
 
     showDialog(
       context: context,
@@ -188,9 +205,9 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
           children: [
             const Text("The data on your device is different from the Cloud."),
             const SizedBox(height: 16),
-            _buildConflictRow(Icons.phone_android, "This Device", "${localList.length} Cutoffs", Colors.blue),
+            _buildConflictRow(Icons.phone_android, "This Device", "${localList.length} Cutoffs • $localShifts Shifts", Colors.blue),
             const SizedBox(height: 8),
-            _buildConflictRow(Icons.cloud, "Google Drive", "${cloudList.length} Cutoffs", Colors.orange),
+            _buildConflictRow(Icons.cloud, "Google Drive", "${cloudList.length} Cutoffs • $cloudShifts Shifts", Colors.orange),
             const SizedBox(height: 16),
             const Text("Which version do you want to keep?", style: TextStyle(fontWeight: FontWeight.bold)),
           ],
@@ -202,6 +219,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
               final List<dynamic> decoded = jsonDecode(cloudJson);
               setState(() {
                 periods = decoded.map((e) => PayPeriod.fromJson(e)).toList();
+                _applySort(); 
               });
               await _saveData(); 
               setState(() => _isUnsynced = false); 
@@ -278,14 +296,26 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     _saveData();
   }
 
-  void _sortPeriods(String type) {
+  void _sortPeriods(String type) async {
     AudioService().playClick(); 
+    
     setState(() {
-      if (type == 'newest') periods.sort((a, b) => b.start.compareTo(a.start));
-      else if (type == 'oldest') periods.sort((a, b) => a.start.compareTo(b.start)); 
-      else if (type == 'edited') periods.sort((a, b) => b.lastEdited.compareTo(a.lastEdited));
+      _currentSort = type;
+      _applySort();
     });
-    _saveData();
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('setting_sort_order', type);
+  }
+
+  void _applySort() {
+    if (_currentSort == 'newest') {
+      periods.sort((a, b) => b.start.compareTo(a.start));
+    } else if (_currentSort == 'oldest') {
+      periods.sort((a, b) => a.start.compareTo(b.start)); 
+    } else if (_currentSort == 'edited') {
+      periods.sort((a, b) => b.lastEdited.compareTo(a.lastEdited));
+    }
   }
 
   void _openSettings() {
@@ -319,6 +349,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       },
       onDeleteAll: () async {
           setState(() { periods = []; });
+          _saveData();
       },
       onExportReport: () {}, onBackup: () {}, onRestore: (s) {},
     )));
@@ -358,19 +389,19 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     
     setState(() { 
       periods.insert(0, newPeriod); 
-      periods.sort((a, b) => b.start.compareTo(a.start)); 
+      _applySort(); 
     });
     
     AudioService().playSuccess();
 
-    _saveData();
+    _saveData(); 
     _openPeriod(newPeriod);
   }
 
   void _openPeriod(PayPeriod period) async {
     AudioService().playClick(); 
     period.lastEdited = DateTime.now();
-    _saveData();
+    _saveData(); 
     
     final manager = Provider.of<DataManager>(context, listen: false);
     
@@ -392,6 +423,11 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Primary Color (Violet)
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    // Check Brightness directly
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Consumer<DataManager>(
       builder: (context, dataManager, child) {
         return Scaffold(
@@ -412,8 +448,19 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                     Positioned(right: 8, top: 8, child: Container(width: 10, height: 10, decoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle, border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2)))),
                 ],
               ),
-              IconButton(icon: const Icon(CupertinoIcons.sort_down), onPressed: () => _sortPeriods('newest')), 
+              
+              PopupMenuButton<String>(
+                icon: const Icon(CupertinoIcons.sort_down),
+                onSelected: _sortPeriods,
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'newest', child: Text("Newest First")),
+                  const PopupMenuItem(value: 'oldest', child: Text("Oldest First")),
+                  const PopupMenuItem(value: 'edited', child: Text("Recently Edited")),
+                ],
+              ),
+              
               IconButton(icon: const Icon(CupertinoIcons.settings), onPressed: _openSettings),
+              
               PopupMenuButton<String>(
                 offset: const Offset(0, 45),
                 icon: CircleAvatar(
@@ -449,10 +496,15 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                   const SizedBox(height: 20), 
                   Text("No Payrolls Yet", style: TextStyle(color: Colors.grey[600], fontSize: 16)), 
                   const SizedBox(height: 10), 
-                  CupertinoButton(
-                    color: Theme.of(context).colorScheme.primary, 
-                    onPressed: _createNewPeriod, 
-                    child: const Text("Create New", style: TextStyle(color: Colors.white)) 
+                  // UPDATED: Use extended button style for empty state button too for consistency
+                  FloatingActionButton.extended(
+                    onPressed: _createNewPeriod,
+                    backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                    foregroundColor: primaryColor,
+                    elevation: 6,
+                    shape: StadiumBorder(side: BorderSide(color: primaryColor, width: 2.0)),
+                    icon: const Icon(CupertinoIcons.add),
+                    label: const Text("Create New", style: TextStyle(fontWeight: FontWeight.bold)),
                   )
                 ]))
               : ListView.builder(
@@ -505,21 +557,18 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                                   ],
                                 ),
                               ),
-                              // UPDATED: Filled Pill Version using Theme Colors
                               Container(
                                 width: 110,
                                 padding: const EdgeInsets.symmetric(vertical: 10),
                                 decoration: BoxDecoration(
-                                  // Uses theme primary container (Light/Dark adaptive)
                                   color: Theme.of(context).colorScheme.primaryContainer, 
-                                  borderRadius: BorderRadius.circular(50), // Fully rounded pill
+                                  borderRadius: BorderRadius.circular(50), 
                                 ),
                                 child: Center(
                                   child: FittedBox(
                                     fit: BoxFit.scaleDown,
                                     child: Text(
                                       _getMoneyText(totalPay),
-                                      // Uses theme OnPrimaryContainer for text color
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700, 
                                         fontSize: 15, 
@@ -536,7 +585,18 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                     );
                   },
                 ),
-          floatingActionButton: FloatingActionButton(onPressed: _createNewPeriod, backgroundColor: Theme.of(context).colorScheme.primary, child: const Icon(CupertinoIcons.add, color: Colors.white)),
+          // UPDATED: Oval, Outlined, Theme-Aware FAB with Label
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: _createNewPeriod,
+            label: const Text("Add Payroll", style: TextStyle(fontWeight: FontWeight.bold)),
+            icon: const Icon(CupertinoIcons.add),
+            backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            foregroundColor: primaryColor,
+            elevation: 6,
+            shape: StadiumBorder(
+              side: BorderSide(color: primaryColor, width: 2.0)
+            ),
+          ),
         );
       },
     );
