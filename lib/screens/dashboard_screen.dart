@@ -69,28 +69,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     });
   }
 
-  // --- HELPER: Consistent Red Error Snackbar ---
-  void _showErrorSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.error_outline, color: Colors.white),
-            const SizedBox(width: 10),
-            Expanded(child: Text(message, style: const TextStyle(fontWeight: FontWeight.bold))),
-          ],
-        ),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating, // Floats above bottom
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 3),
-      )
-    );
-  }
-
   // --- LOCAL DATA HANDLING ---
   Future<void> _loadLocalData() async {
     final prefs = await SharedPreferences.getInstance();
@@ -170,7 +148,8 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showErrorSnackBar("Sync Error: $e");
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Sync Error: $e"), backgroundColor: Colors.red));
       }
     }
   }
@@ -189,7 +168,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
         setState(() => _isUnsynced = false);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cloud Updated Successfully"), backgroundColor: Colors.green));
       } else {
-        _showErrorSnackBar("Upload Failed. Saved Locally.");
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Upload Failed. Saved Locally."), backgroundColor: Colors.orange));
       }
     }
   }
@@ -288,7 +267,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     if (newEnd == null) return;
 
     if (hasDateOverlap(newStart, newEnd, periods, excludeId: period.id)) {
-      _showErrorSnackBar("Dates overlap with another payroll!");
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Dates overlap with another payroll!"), backgroundColor: Colors.red));
       return;
     }
 
@@ -349,7 +328,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     DateTime now = DateTime.now();
     DateTime defaultStart = (now.day <= 15) ? DateTime(now.year, now.month, 1) : DateTime(now.year, now.month, 16);
     
-    AudioService().playClick();
+    AudioService().playClick(); 
     
     DateTime? start = await showFastDatePicker(context, defaultStart);
     if (start == null) return;
@@ -363,7 +342,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     if (end == null) return;
 
     if (hasDateOverlap(start, end, periods)) {
-      _showErrorSnackBar("Error: Overlaps with existing payroll.");
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Overlaps with existing payroll."), backgroundColor: Colors.red));
       return;
     }
 
@@ -382,7 +361,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       periods.sort((a, b) => b.start.compareTo(a.start)); 
     });
     
-    AudioService().playSuccess(); 
+    AudioService().playSuccess();
 
     _saveData();
     _openPeriod(newPeriod);
@@ -427,7 +406,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                     icon: Icon(CupertinoIcons.cloud_upload, color: Theme.of(context).iconTheme.color), 
                     onPressed: (!dataManager.isGuest) 
                       ? () => _performManualSync() 
-                      : () { _showErrorSnackBar("Login required to sync."); },
+                      : () { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Login required to sync."))); },
                   ),
                   if (_isUnsynced && !dataManager.isGuest)
                     Positioned(right: 8, top: 8, child: Container(width: 10, height: 10, decoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle, border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2)))),
@@ -484,7 +463,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                     final totalPay = p.getTotalPay(
                       widget.shiftStart, 
                       widget.shiftEnd, 
-                      hourlyRate: dataManager.defaultHourlyRate, // USE GLOBAL RATE
+                      hourlyRate: dataManager.defaultHourlyRate,
                       enableLate: dataManager.enableLateDeductions, 
                       enableOt: dataManager.enableOvertime
                     );
@@ -526,16 +505,26 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                                   ],
                                 ),
                               ),
+                              // UPDATED: Filled Pill Version using Theme Colors
                               Container(
                                 width: 110,
                                 padding: const EdgeInsets.symmetric(vertical: 10),
-                                decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                                decoration: BoxDecoration(
+                                  // Uses theme primary container (Light/Dark adaptive)
+                                  color: Theme.of(context).colorScheme.primaryContainer, 
+                                  borderRadius: BorderRadius.circular(50), // Fully rounded pill
+                                ),
                                 child: Center(
                                   child: FittedBox(
                                     fit: BoxFit.scaleDown,
                                     child: Text(
                                       _getMoneyText(totalPay),
-                                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Colors.green),
+                                      // Uses theme OnPrimaryContainer for text color
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700, 
+                                        fontSize: 15, 
+                                        color: Theme.of(context).colorScheme.onPrimaryContainer
+                                      ),
                                     ),
                                   ),
                                 ),

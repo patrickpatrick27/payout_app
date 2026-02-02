@@ -3,14 +3,21 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'services/data_manager.dart';
 import 'services/update_service.dart';
-import 'screens/dashboard_screen.dart';
+import 'services/audio_service.dart'; // <--- IMPORTANT: Audio Import
+
+// --- SCREEN IMPORTS ---
+import 'screens/dashboard_screen.dart'; // <--- FIX: Ensure this file exists and contains PayPeriodListScreen
 import 'screens/login_screen.dart';
 
 // 1. GLOBAL NAVIGATOR KEY - This allows dialogs from anywhere
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-void main() {
+void main() async { // <--- UPDATED: Must be async for audio preload
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // <--- ADDED: Preload sounds for instant playback
+  await AudioService().init(); 
+
   runApp(
     MultiProvider(
       providers: [
@@ -37,7 +44,9 @@ class _PayTrackerAppState extends State<PayTrackerApp> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Use the global key's context if available, otherwise fallback to local
       final contextToUse = navigatorKey.currentContext ?? context;
-      GithubUpdateService.checkForUpdate(contextToUse);
+      if (contextToUse != null) {
+        GithubUpdateService.checkForUpdate(contextToUse);
+      }
     });
   }
 

@@ -41,7 +41,6 @@ class PeriodDetailScreen extends StatefulWidget {
 class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
   final NumberFormat currencyFormatter = NumberFormat("#,##0.00", "en_US");
 
-  // --- HELPER: Consistent Red Error Snackbar ---
   void _showErrorSnackBar(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -55,7 +54,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
           ],
         ),
         backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating, // Floats above bottom
+        behavior: SnackBarBehavior.floating, 
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         margin: const EdgeInsets.all(16),
         duration: const Duration(seconds: 3),
@@ -76,6 +75,30 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     return "${hours.toStringAsFixed(1)}h";
   }
 
+  double _calculateShiftPay(Shift s, double hourlyRate) {
+    if (s.isManualPay) return s.manualAmount;
+
+    double regHours = s.getRegularHours(
+      widget.shiftStart, 
+      widget.shiftEnd, 
+      isLateEnabled: widget.enableLate, 
+      roundEndTime: true
+    );
+    
+    double otHours = widget.enableOt ? s.getOvertimeHours(widget.shiftStart, widget.shiftEnd) : 0.0;
+    
+    double pay = (regHours * hourlyRate) + (otHours * hourlyRate * 1.25);
+
+    if (widget.enableLate) {
+      int lateMins = PayrollCalculator.calculateLateMinutes(s.rawTimeIn, widget.shiftStart);
+      if (lateMins > 0) {
+        pay -= (lateMins / 60.0) * hourlyRate;
+      }
+    }
+    
+    return pay > 0 ? pay : 0.0;
+  }
+
   void _saveChanges() {
     widget.period.lastEdited = DateTime.now();
     widget.onSave(); 
@@ -92,10 +115,11 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     TimeOfDay tOut = existingShift?.rawTimeOut ?? widget.shiftEnd;
     bool isManual = existingShift?.isManualPay ?? false;
     TextEditingController manualCtrl = TextEditingController(text: existingShift?.manualAmount.toString() ?? "0");
+    TextEditingController remarksCtrl = TextEditingController(text: existingShift?.remarks ?? ""); 
+    
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color dlgBg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
 
-    // We accept a dynamic result to handle different exit reasons
     var result = await showModalBottomSheet(
       context: context, isScrollControlled: true, backgroundColor: dlgBg,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
@@ -128,25 +152,31 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                   ] else ...[
                      TextField(controller: manualCtrl, keyboardType: TextInputType.number, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18), decoration: InputDecoration(labelText: "Amount", border: const OutlineInputBorder(), prefixText: "${widget.currencySymbol} "))
                   ],
+                  
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: remarksCtrl,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: InputDecoration(
+                      labelText: "Remarks (Optional)",
+                      prefixIcon: const Icon(CupertinoIcons.text_bubble, size: 20, color: Colors.grey),
+                      filled: true,
+                      fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100],
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14)
+                    ),
+                  ),
+
                   const SizedBox(height: 30),
                   SizedBox(width: double.infinity, height: 50, child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), 
                     onPressed: () { 
                       AudioService().playClick(); 
-                      
-                      // 1. Validate Time Logic
                       if (!isManual) {
                         double inVal = tIn.hour + tIn.minute / 60.0;
                         double outVal = tOut.hour + tOut.minute / 60.0;
-
-                        if (inVal >= outVal) {
-                          // Close sheet immediately with special error code
-                          Navigator.pop(context, "INVALID_TIME");
-                          return; 
-                        }
+                        if (inVal >= outVal) { Navigator.pop(context, "INVALID_TIME"); return; }
                       }
-                      
-                      // Success signal
                       Navigator.pop(context, true); 
                     }, 
                     child: const Text("Save Shift", style: TextStyle(fontWeight: FontWeight.bold))
@@ -160,14 +190,10 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
       }
     );
 
-    // --- HANDLE RESULT ---
-    
     if (result == "INVALID_TIME") {
-      // 2. Show Consistent Red Snackbar
       _showErrorSnackBar("Time In must be earlier than Time Out.");
     } 
     else if (result == true) {
-      // 3. Proceed to Save
       if (existingShift == null && isDuplicateShift(widget.period.shifts, tempDate)) {
            _showErrorSnackBar("Error: Date already exists!");
            return;
@@ -175,9 +201,19 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
       setState(() {
         if (existingShift != null) {
           existingShift.date = tempDate; existingShift.rawTimeIn = tIn; existingShift.rawTimeOut = tOut;
-          existingShift.isManualPay = isManual; existingShift.manualAmount = double.tryParse(manualCtrl.text) ?? 0.0;
+          existingShift.isManualPay = isManual; 
+          existingShift.manualAmount = double.tryParse(manualCtrl.text) ?? 0.0;
+          existingShift.remarks = remarksCtrl.text.trim(); 
         } else {
-          widget.period.shifts.add(Shift(id: const Uuid().v4(), date: tempDate, rawTimeIn: tIn, rawTimeOut: tOut, isManualPay: isManual, manualAmount: double.tryParse(manualCtrl.text) ?? 0.0));
+          widget.period.shifts.add(Shift(
+            id: const Uuid().v4(), 
+            date: tempDate, 
+            rawTimeIn: tIn, 
+            rawTimeOut: tOut, 
+            isManualPay: isManual, 
+            manualAmount: double.tryParse(manualCtrl.text) ?? 0.0,
+            remarks: remarksCtrl.text.trim()
+          ));
         }
         widget.period.shifts.sort((a, b) => b.date.compareTo(a.date));
         _saveChanges();
@@ -221,10 +257,10 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                    ]),
                 const SizedBox(height: 12),
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    _buildStatPill("Regular: ${_formatDuration(totalReg)}", Colors.grey, isDark),
+                    _buildStatPill(context, "Regular: ${_formatDuration(totalReg)}"),
                     if (widget.enableOt && totalOT > 0) ...[
                       const SizedBox(width: 10),
-                      _buildStatPill("Overtime: ${_formatDuration(totalOT)}", Colors.blue, isDark),
+                      _buildStatPill(context, "Overtime: ${_formatDuration(totalOT)}"),
                     ]
                 ]),
                 const SizedBox(height: 12),
@@ -250,14 +286,12 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                     int lateMins = PayrollCalculator.calculateLateMinutes(s.rawTimeIn, widget.shiftStart);
                     double lateHours = lateMins / 60.0;
                     
-                    // Display: Honest (unrounded) hours
                     double regHours = s.getRegularHours(
-                      widget.shiftStart, 
-                      widget.shiftEnd, 
-                      isLateEnabled: widget.enableLate, 
-                      roundEndTime: false 
+                      widget.shiftStart, widget.shiftEnd, 
+                      isLateEnabled: widget.enableLate, roundEndTime: false 
                     );
                     double otHours = s.getOvertimeHours(widget.shiftStart, widget.shiftEnd);
+                    double shiftPay = _calculateShiftPay(s, hourlyRate);
 
                     return Dismissible(
                       key: Key(s.id),
@@ -279,14 +313,30 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                           decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0,2))]),
                           child: Row(
                             children: [
+                              // Left: Date
                               Container(width: 50, padding: const EdgeInsets.symmetric(vertical: 8), decoration: BoxDecoration(color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], borderRadius: BorderRadius.circular(10)), child: Column(children: [Text(DateFormat('MMM').format(s.date).toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.grey)), Text(DateFormat('dd').format(s.date), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: isDark ? Colors.white : Colors.black87))])),
                               const SizedBox(width: 16),
+                              
+                              // Middle: Info
                               Expanded(
                                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                     if (s.isManualPay) Text("Flat Pay: ${_getMoneyText(s.manualAmount)}", style: const TextStyle(fontWeight: FontWeight.bold))
                                     else ...[
                                       Text("${formatTime(context, s.rawTimeIn, widget.use24HourFormat)} - ${formatTime(context, s.rawTimeOut, widget.use24HourFormat)}", style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                                      const SizedBox(height: 4),
+                                      
+                                      if (s.remarks.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          s.remarks,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(color: isDark ? Colors.grey[400] : Colors.grey[600], fontSize: 12, fontStyle: FontStyle.italic),
+                                        ),
+                                        const SizedBox(height: 4),
+                                      ] else ...[
+                                        const SizedBox(height: 4),
+                                      ],
+                                      
                                       Row(children: [
                                           _buildTag("Reg: ${_formatDuration(regHours)}", Colors.grey, isDark),
                                           if (widget.enableOt && otHours > 0) _buildTag("OT: ${_formatDuration(otHours)}", Colors.blue, isDark),
@@ -294,6 +344,35 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                                       ]),
                                     ]
                                 ]),
+                              ),
+
+                              // Right Side Money Pill (FIXED: OUTLINED + THEME COLOR)
+                              const SizedBox(width: 8),
+                              Container(
+                                width: 90, 
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  // Replaced hardcoded Green with Transparent + Outlined Theme Color
+                                  color: Colors.transparent, 
+                                  borderRadius: BorderRadius.circular(50), 
+                                  border: Border.all(
+                                    color: Theme.of(context).colorScheme.primary, 
+                                    width: 1.5
+                                  )
+                                ),
+                                child: Center(
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      _getMoneyText(shiftPay),
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700, 
+                                        fontSize: 14, 
+                                        color: Theme.of(context).colorScheme.primary // Theme Color
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
@@ -309,8 +388,20 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     );
   }
 
-  Widget _buildStatPill(String text, Color color, bool isDark) {
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: color.withOpacity(0.3))), child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)));
+  Widget _buildStatPill(BuildContext context, String text) {
+    final color = Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), 
+      decoration: BoxDecoration(
+        color: Colors.transparent, 
+        borderRadius: BorderRadius.circular(50), 
+        border: Border.all(color: color, width: 1.5) 
+      ), 
+      child: Text(
+        text, 
+        style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)
+      )
+    );
   }
 
   Widget _buildTag(String text, Color color, bool isDark) {

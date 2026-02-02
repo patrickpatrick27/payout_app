@@ -9,6 +9,7 @@ class Shift {
   TimeOfDay rawTimeOut;
   bool isManualPay; 
   double manualAmount;
+  String remarks; // NEW: Added remarks field
 
   Shift({
     required this.id,
@@ -17,6 +18,7 @@ class Shift {
     required this.rawTimeOut,
     this.isManualPay = false,
     this.manualAmount = 0.0,
+    this.remarks = "", // Default to empty
   });
 
   @override
@@ -36,6 +38,7 @@ class Shift {
         'rawTimeOut': '${rawTimeOut.hour}:${rawTimeOut.minute}',
         'isManualPay': isManualPay,
         'manualAmount': manualAmount,
+        'remarks': remarks, // Save it
       };
 
   factory Shift.fromJson(Map<String, dynamic> json) {
@@ -48,10 +51,11 @@ class Shift {
       rawTimeOut: TimeOfDay(hour: int.parse(tOut[0]), minute: int.parse(tOut[1])),
       isManualPay: json['isManualPay'] ?? false,
       manualAmount: (json['manualAmount'] ?? 0.0).toDouble(),
+      remarks: json['remarks'] ?? "", // Load it safely
     );
   }
 
-  // UPDATED: Now accepts roundEndTime to support both Display (false) and Pay (true) modes
+  // Helper delegates to Calculator
   double getRegularHours(TimeOfDay globalStart, TimeOfDay globalEnd, {
     required bool isLateEnabled, 
     bool roundEndTime = true
@@ -62,7 +66,7 @@ class Shift {
       shiftStart: globalStart, 
       shiftEnd: globalEnd,
       isLateEnabled: isLateEnabled,
-      roundEndTime: roundEndTime // Passes flag to calculator
+      roundEndTime: roundEndTime 
     );
   }
 
@@ -106,7 +110,6 @@ class PayPeriod {
     );
   }
 
-  /// Calculates total pay using Global Rate and Settings
   double getTotalPay(TimeOfDay shiftStart, TimeOfDay shiftEnd, {
     required double hourlyRate, 
     bool enableLate = true, 
@@ -118,25 +121,13 @@ class PayPeriod {
         total += shift.manualAmount;
         continue;
       }
-
-      // 1. Calculate Base Hours (STRICT MODE: roundEndTime = true)
-      // This ensures we only pay for completed 30-minute blocks
-      double hours = shift.getRegularHours(shiftStart, shiftEnd, 
-        isLateEnabled: enableLate,
-        roundEndTime: true // STRICT PAY
-      );
-      
-      // 2. Calculate OT
+      double hours = shift.getRegularHours(shiftStart, shiftEnd, isLateEnabled: enableLate, roundEndTime: true);
       double ot = enableOt ? shift.getOvertimeHours(shiftStart, shiftEnd) : 0.0;
-      
-      // 3. Calculate Base Pay
       double pay = (hours * hourlyRate) + (ot * hourlyRate * 1.25);
 
-      // 4. Apply Specific Late Deduction (Only if enabled)
       if (enableLate) {
         int lateMins = PayrollCalculator.calculateLateMinutes(shift.rawTimeIn, shiftStart);
         if (lateMins > 0) {
-          // Deduct exact minute value
           pay -= (lateMins / 60.0) * hourlyRate;
         }
       }
@@ -146,7 +137,6 @@ class PayPeriod {
   }
 
   double getTotalRegularHours(TimeOfDay shiftStart, TimeOfDay shiftEnd) {
-    // For general summary, we show the PAID hours (Strict Mode)
     return shifts.fold(0, (sum, s) => sum + s.getRegularHours(shiftStart, shiftEnd, isLateEnabled: true, roundEndTime: true));
   }
   
