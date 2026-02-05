@@ -38,7 +38,7 @@ class PeriodDetailScreen extends StatefulWidget {
   State<PeriodDetailScreen> createState() => _PeriodDetailScreenState();
 }
 
-class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
+class _PeriodDetailScreenState extends State<PeriodDetailScreen> with TickerProviderStateMixin {
   final NumberFormat currencyFormatter = NumberFormat("#,##0.00", "en_US");
 
   void _showErrorSnackBar(String message) {
@@ -95,6 +95,10 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
         pay -= (lateMins / 60.0) * hourlyRate;
       }
     }
+
+    if (s.isHoliday && s.holidayMultiplier > 0) {
+      pay += pay * (s.holidayMultiplier / 100.0);
+    }
     
     return pay > 0 ? pay : 0.0;
   }
@@ -106,6 +110,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
 
   void _showShiftDialog({Shift? existingShift}) async {
     AudioService().playClick();
+    
     DateTime tempDate = existingShift?.date ?? widget.period.start;
     if (existingShift == null) {
       DateTime now = DateTime.now();
@@ -113,76 +118,156 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     }
     TimeOfDay tIn = existingShift?.rawTimeIn ?? widget.shiftStart;
     TimeOfDay tOut = existingShift?.rawTimeOut ?? widget.shiftEnd;
+    
     bool isManual = existingShift?.isManualPay ?? false;
+    bool isHoliday = existingShift?.isHoliday ?? false;
+    
+    TextEditingController multiplierCtrl = TextEditingController(text: existingShift != null ? existingShift.holidayMultiplier.toStringAsFixed(0) : "30");
     TextEditingController manualCtrl = TextEditingController(text: existingShift?.manualAmount.toString() ?? "0");
     TextEditingController remarksCtrl = TextEditingController(text: existingShift?.remarks ?? ""); 
     
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color dlgBg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final Color primaryColor = Theme.of(context).colorScheme.primary;
 
     var result = await showModalBottomSheet(
-      context: context, isScrollControlled: true, backgroundColor: dlgBg,
+      context: context, 
+      isScrollControlled: true, 
+      backgroundColor: dlgBg,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(existingShift == null ? "Add Shift" : "Edit Shift", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22)), IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(CupertinoIcons.xmark_circle_fill, color: Colors.grey))]),
-                  const SizedBox(height: 20),
-                  GestureDetector(
-                    onTap: () async {
-                      DateTime? picked = await showFastDatePicker(context, tempDate);
-                      if (picked != null) setModalState(() => tempDate = picked);
-                    },
-                    child: Container(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16), decoration: BoxDecoration(color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], borderRadius: BorderRadius.circular(12)), child: Row(children: [const Icon(CupertinoIcons.calendar, color: Colors.blue), const SizedBox(width: 12), Text(DateFormat('MMM d, yyyy').format(tempDate), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))])),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Manual Pay Override", style: TextStyle(fontWeight: FontWeight.w500)), CupertinoSwitch(value: isManual, activeColor: Colors.blue, onChanged: (val) { AudioService().playClick(); setModalState(() => isManual = val); })]),
-                  const Divider(height: 24),
-                  if (!isManual) ...[
-                     Row(children: [
-                         Expanded(child: GestureDetector(onTap: () async { final t = await showFastTimePicker(context, tIn, widget.use24HourFormat); if (t!=null) setModalState(() => tIn = t); }, child: Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blue.withOpacity(0.2))), child: Column(children: [const Text("IN", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue)), const SizedBox(height: 4), Text(formatTime(context, tIn, widget.use24HourFormat), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))])))),
-                         const SizedBox(width: 12),
-                         Expanded(child: GestureDetector(onTap: () async { final t = await showFastTimePicker(context, tOut, widget.use24HourFormat); if (t!=null) setModalState(() => tOut = t); }, child: Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blue.withOpacity(0.2))), child: Column(children: [const Text("OUT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue)), const SizedBox(height: 4), Text(formatTime(context, tOut, widget.use24HourFormat), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))])))),
-                     ]),
-                  ] else ...[
-                     TextField(controller: manualCtrl, keyboardType: TextInputType.number, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18), decoration: InputDecoration(labelText: "Amount", border: const OutlineInputBorder(), prefixText: "${widget.currencySymbol} "))
-                  ],
-                  
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: remarksCtrl,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      labelText: "Remarks (Optional)",
-                      prefixIcon: const Icon(CupertinoIcons.text_bubble, size: 20, color: Colors.grey),
-                      filled: true,
-                      fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100],
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14)
+            return SingleChildScrollView(
+              child: Padding(
+                padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 20, left: 24, right: 24, top: 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(existingShift == null ? "Add Shift" : "Edit Shift", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22)), IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(CupertinoIcons.xmark_circle_fill, color: Colors.grey))]),
+                    const SizedBox(height: 20),
+                    
+                    GestureDetector(
+                      onTap: () async {
+                        DateTime? picked = await showFastDatePicker(context, tempDate);
+                        if (picked != null) setModalState(() => tempDate = picked);
+                      },
+                      child: Container(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16), decoration: BoxDecoration(color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], borderRadius: BorderRadius.circular(12)), child: Row(children: [const Icon(CupertinoIcons.calendar, color: Colors.blue), const SizedBox(width: 12), Text(DateFormat('MMM d, yyyy').format(tempDate), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))])),
                     ),
-                  ),
+                    const SizedBox(height: 16),
 
-                  const SizedBox(height: 30),
-                  SizedBox(width: double.infinity, height: 50, child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), 
-                    onPressed: () { 
-                      AudioService().playClick(); 
-                      if (!isManual) {
-                        double inVal = tIn.hour + tIn.minute / 60.0;
-                        double outVal = tOut.hour + tOut.minute / 60.0;
-                        if (inVal >= outVal) { Navigator.pop(context, "INVALID_TIME"); return; }
-                      }
-                      Navigator.pop(context, true); 
-                    }, 
-                    child: const Text("Save Shift", style: TextStyle(fontWeight: FontWeight.bold))
-                  )),
-                  const SizedBox(height: 20),
-                ],
+                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Manual Pay Override", style: TextStyle(fontWeight: FontWeight.w500)), CupertinoSwitch(value: isManual, activeColor: Colors.blue, onChanged: (val) { AudioService().playClick(); setModalState(() => isManual = val); })]),
+                    const Divider(height: 24),
+                    
+                    if (!isManual) ...[
+                       Row(children: [
+                           Expanded(child: GestureDetector(onTap: () async { final t = await showFastTimePicker(context, tIn, widget.use24HourFormat); if (t!=null) setModalState(() => tIn = t); }, child: Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blue.withOpacity(0.2))), child: Column(children: [const Text("IN", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue)), const SizedBox(height: 4), Text(formatTime(context, tIn, widget.use24HourFormat), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))])))),
+                           const SizedBox(width: 12),
+                           Expanded(child: GestureDetector(onTap: () async { final t = await showFastTimePicker(context, tOut, widget.use24HourFormat); if (t!=null) setModalState(() => tOut = t); }, child: Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blue.withOpacity(0.2))), child: Column(children: [const Text("OUT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue)), const SizedBox(height: 4), Text(formatTime(context, tOut, widget.use24HourFormat), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))])))),
+                       ]),
+                       const SizedBox(height: 20),
+
+                       const Text("Shift Type", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                       const SizedBox(height: 8),
+                       
+                       Row(
+                         children: [
+                           Expanded(
+                             child: GestureDetector(
+                               onTap: () => setModalState(() => isHoliday = false),
+                               child: AnimatedContainer(
+                                 duration: const Duration(milliseconds: 200),
+                                 curve: Curves.easeInOut,
+                                 padding: const EdgeInsets.symmetric(vertical: 12),
+                                 alignment: Alignment.center,
+                                 decoration: BoxDecoration(
+                                   color: !isHoliday ? primaryColor.withOpacity(0.1) : Colors.transparent,
+                                   border: Border.all(color: !isHoliday ? primaryColor : Colors.grey[400]!),
+                                   borderRadius: BorderRadius.circular(8)
+                                 ),
+                                 child: Text("Regular", style: TextStyle(fontWeight: FontWeight.bold, color: !isHoliday ? primaryColor : Colors.grey)),
+                               ),
+                             ),
+                           ),
+                           const SizedBox(width: 10),
+                           Expanded(
+                             child: GestureDetector(
+                               onTap: () => setModalState(() => isHoliday = true),
+                               child: AnimatedContainer(
+                                 duration: const Duration(milliseconds: 200),
+                                 curve: Curves.easeInOut,
+                                 padding: const EdgeInsets.symmetric(vertical: 12),
+                                 alignment: Alignment.center,
+                                 decoration: BoxDecoration(
+                                   color: isHoliday ? Colors.orange.withOpacity(0.1) : Colors.transparent,
+                                   border: Border.all(color: isHoliday ? Colors.orange : Colors.grey[400]!),
+                                   borderRadius: BorderRadius.circular(8)
+                                 ),
+                                 child: Text("Holiday / Rest", style: TextStyle(fontWeight: FontWeight.bold, color: isHoliday ? Colors.orange : Colors.grey)),
+                               ),
+                             ),
+                           ),
+                         ],
+                       ),
+                       
+                       // SLOWER ANIMATION FOR RETURN
+                       AnimatedSize(
+                         duration: const Duration(milliseconds: 600), // Slower animation
+                         curve: Curves.easeInOut,
+                         alignment: Alignment.topCenter, // Ensures smooth return
+                         child: isHoliday ? Column(
+                           children: [
+                             const SizedBox(height: 12),
+                             TextField(
+                               controller: multiplierCtrl,
+                               keyboardType: TextInputType.number,
+                               decoration: InputDecoration(
+                                 labelText: "Percent Increase (%)",
+                                 suffixText: "%",
+                                 helperText: "e.g. 30 for Regular Holiday, 100 for Double Pay",
+                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                 prefixIcon: const Icon(Icons.percent, color: Colors.orange),
+                               ),
+                             ),
+                           ],
+                         ) : const SizedBox(width: double.infinity), // Keeps width consistent during shrink
+                       ),
+
+                    ] else ...[
+                       TextField(controller: manualCtrl, keyboardType: TextInputType.number, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18), decoration: InputDecoration(labelText: "Amount", border: const OutlineInputBorder(), prefixText: "${widget.currencySymbol} "))
+                    ],
+                    
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: remarksCtrl,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: InputDecoration(
+                        labelText: "Remarks (Optional)",
+                        prefixIcon: const Icon(CupertinoIcons.text_bubble, size: 20, color: Colors.grey),
+                        filled: true,
+                        fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100],
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14)
+                      ),
+                    ),
+
+                    const SizedBox(height: 30),
+                    SizedBox(width: double.infinity, height: 50, child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), 
+                      onPressed: () { 
+                        AudioService().playClick(); 
+                        if (!isManual) {
+                          double inVal = tIn.hour + tIn.minute / 60.0;
+                          double outVal = tOut.hour + tOut.minute / 60.0;
+                          if (inVal >= outVal) { Navigator.pop(context, "INVALID_TIME"); return; }
+                        }
+                        Navigator.pop(context, true); 
+                      }, 
+                      child: const Text("Save Shift", style: TextStyle(fontWeight: FontWeight.bold))
+                    )),
+                    const SizedBox(height: 20),
+                  ],
+                ),
               ),
             );
           },
@@ -199,11 +284,15 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
            return;
       }
       setState(() {
+        final double multiplier = double.tryParse(multiplierCtrl.text) ?? 0.0;
+
         if (existingShift != null) {
           existingShift.date = tempDate; existingShift.rawTimeIn = tIn; existingShift.rawTimeOut = tOut;
           existingShift.isManualPay = isManual; 
           existingShift.manualAmount = double.tryParse(manualCtrl.text) ?? 0.0;
-          existingShift.remarks = remarksCtrl.text.trim(); 
+          existingShift.remarks = remarksCtrl.text.trim();
+          existingShift.isHoliday = isHoliday;
+          existingShift.holidayMultiplier = multiplier;
         } else {
           widget.period.shifts.add(Shift(
             id: const Uuid().v4(), 
@@ -212,7 +301,9 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
             rawTimeOut: tOut, 
             isManualPay: isManual, 
             manualAmount: double.tryParse(manualCtrl.text) ?? 0.0,
-            remarks: remarksCtrl.text.trim()
+            remarks: remarksCtrl.text.trim(),
+            isHoliday: isHoliday,
+            holidayMultiplier: multiplier,
           ));
         }
         widget.period.shifts.sort((a, b) => b.date.compareTo(a.date));
@@ -227,8 +318,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
     final double hourlyRate = dataManager.defaultHourlyRate;
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color subTextColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
-    // Primary Color (Violet)
-    final primaryColor = Theme.of(context).colorScheme.primary;
+    final Color primaryColor = Theme.of(context).colorScheme.primary;
     
     final double totalPay = widget.period.getTotalPay(
       widget.shiftStart, widget.shiftEnd, 
@@ -339,22 +429,23 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                                         const SizedBox(height: 4),
                                       ],
                                       
-                                      Row(children: [
+                                      Wrap(spacing: 6, runSpacing: 4, children: [
                                           _buildTag("Reg: ${_formatDuration(regHours)}", Colors.grey, isDark),
                                           if (widget.enableOt && otHours > 0) _buildTag("OT: ${_formatDuration(otHours)}", Colors.blue, isDark),
                                           if (widget.enableLate && lateHours > 0) _buildTag("Late: ${_formatDuration(lateHours)}", Colors.redAccent, isDark),
+                                          
+                                          if (s.isHoliday && s.holidayMultiplier > 0) 
+                                            _buildHolidayTag(context, "+${s.holidayMultiplier.toStringAsFixed(0)}% Pay"),
                                       ]),
                                     ]
                                 ]),
                               ),
 
-                              // Right Side Money Pill (FIXED: OUTLINED + THEME COLOR)
                               const SizedBox(width: 8),
                               Container(
                                 width: 90, 
                                 padding: const EdgeInsets.symmetric(vertical: 8),
                                 decoration: BoxDecoration(
-                                  // Replaced hardcoded Green with Transparent + Outlined Theme Color
                                   color: Colors.transparent, 
                                   borderRadius: BorderRadius.circular(50), 
                                   border: Border.all(
@@ -370,7 +461,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700, 
                                         fontSize: 14, 
-                                        color: Theme.of(context).colorScheme.primary // Theme Color
+                                        color: Theme.of(context).colorScheme.primary 
                                       ),
                                     ),
                                   ),
@@ -386,7 +477,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
           ),
         ],
       ),
-      // UPDATED: Oval, Outlined, Theme-Aware FAB with Label
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showShiftDialog(),
         label: const Text("Add Shift", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -419,5 +509,24 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> {
 
   Widget _buildTag(String text, Color color, bool isDark) {
     return Container(margin: const EdgeInsets.only(right: 6), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(6)), child: Text(text, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)));
+  }
+
+  Widget _buildHolidayTag(BuildContext context, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), 
+      decoration: BoxDecoration(
+        color: Colors.transparent, 
+        borderRadius: BorderRadius.circular(50),
+        border: Border.all(color: Colors.orange, width: 1)
+      ), 
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.star, size: 10, color: Colors.orange),
+          const SizedBox(width: 4),
+          Text(text, style: const TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold)),
+        ],
+      )
+    );
   }
 }

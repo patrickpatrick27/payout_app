@@ -9,7 +9,11 @@ class Shift {
   TimeOfDay rawTimeOut;
   bool isManualPay; 
   double manualAmount;
-  String remarks; // NEW: Added remarks field
+  String remarks;
+  
+  // NEW: Holiday Fields
+  bool isHoliday; 
+  double holidayMultiplier; // e.g., 30.0 for 30% increase
 
   Shift({
     required this.id,
@@ -18,7 +22,9 @@ class Shift {
     required this.rawTimeOut,
     this.isManualPay = false,
     this.manualAmount = 0.0,
-    this.remarks = "", // Default to empty
+    this.remarks = "",
+    this.isHoliday = false,
+    this.holidayMultiplier = 0.0,
   });
 
   @override
@@ -38,7 +44,9 @@ class Shift {
         'rawTimeOut': '${rawTimeOut.hour}:${rawTimeOut.minute}',
         'isManualPay': isManualPay,
         'manualAmount': manualAmount,
-        'remarks': remarks, // Save it
+        'remarks': remarks,
+        'isHoliday': isHoliday,
+        'holidayMultiplier': holidayMultiplier,
       };
 
   factory Shift.fromJson(Map<String, dynamic> json) {
@@ -51,7 +59,9 @@ class Shift {
       rawTimeOut: TimeOfDay(hour: int.parse(tOut[0]), minute: int.parse(tOut[1])),
       isManualPay: json['isManualPay'] ?? false,
       manualAmount: (json['manualAmount'] ?? 0.0).toDouble(),
-      remarks: json['remarks'] ?? "", // Load it safely
+      remarks: json['remarks'] ?? "",
+      isHoliday: json['isHoliday'] ?? false,
+      holidayMultiplier: (json['holidayMultiplier'] ?? 0.0).toDouble(),
     );
   }
 
@@ -123,15 +133,25 @@ class PayPeriod {
       }
       double hours = shift.getRegularHours(shiftStart, shiftEnd, isLateEnabled: enableLate, roundEndTime: true);
       double ot = enableOt ? shift.getOvertimeHours(shiftStart, shiftEnd) : 0.0;
+      
+      // 1. Base Pay Calculation
       double pay = (hours * hourlyRate) + (ot * hourlyRate * 1.25);
 
+      // 2. Late Deductions
       if (enableLate) {
         int lateMins = PayrollCalculator.calculateLateMinutes(shift.rawTimeIn, shiftStart);
         if (lateMins > 0) {
           pay -= (lateMins / 60.0) * hourlyRate;
         }
       }
-      total += pay;
+
+      // 3. NEW: Holiday Multiplier
+      // Example: If multiplier is 30, we add 30% of the calculated pay
+      if (shift.isHoliday && shift.holidayMultiplier > 0) {
+        pay += pay * (shift.holidayMultiplier / 100.0);
+      }
+
+      total += (pay > 0 ? pay : 0.0);
     }
     return total;
   }

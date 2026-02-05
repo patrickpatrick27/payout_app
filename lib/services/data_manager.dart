@@ -72,7 +72,6 @@ class DataManager extends ChangeNotifier {
 
   // --- AUTHENTICATION ---
 
-  // RENAMED from loginWithGoogle to match Dashboard calls
   Future<void> login() async {
     try {
       _currentUser = await _googleSignIn.signIn();
@@ -92,19 +91,19 @@ class DataManager extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       print("Login Error: $e");
-      rethrow; // Pass error to UI so SnackBar appears
+      rethrow; 
     }
   }
 
   Future<void> logout() async {
     try {
-      await _googleSignIn.disconnect(); // Disconnect clears the cache better than signOut
+      await _googleSignIn.disconnect(); 
     } catch (_) {
       await _googleSignIn.signOut();
     }
     
     _currentUser = null;
-    _isGuestMode = false; // Reset to require login/guest choice
+    _isGuestMode = false; 
     
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_guest_mode', false);
@@ -113,12 +112,19 @@ class DataManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  void continueAsGuest() async {
+  // UPDATED: Updates UI instantly, saves to disk in background
+  void continueAsGuest() {
     _currentUser = null;
     _isGuestMode = true;
+    notifyListeners(); // Immediate UI update
+
+    // Fire and forget storage update
+    _saveGuestModePreference();
+  }
+
+  Future<void> _saveGuestModePreference() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_guest_mode', true);
-    notifyListeners();
   }
 
   // --- DATA MANAGEMENT ---
