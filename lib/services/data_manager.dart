@@ -7,9 +7,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/constants.dart';
 
 class DataManager extends ChangeNotifier {
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: [drive.DriveApi.driveAppdataScope],
-  );
+  // Make this non-final so we can set it via constructor if needed, 
+  // or keep it final but initialized in the constructor.
+  final GoogleSignIn _googleSignIn;
+
+  // UPDATED CONSTRUCTOR: Allows injecting a mock for testing
+  DataManager({GoogleSignIn? googleSignIn}) 
+      : _googleSignIn = googleSignIn ?? GoogleSignIn(
+          scopes: [drive.DriveApi.driveAppdataScope],
+        );
 
   GoogleSignInAccount? _currentUser;
   bool _isInitialized = false;
@@ -26,7 +32,7 @@ class DataManager extends ChangeNotifier {
 
   // Getters
   bool get isInitialized => _isInitialized;
-  bool get isAuthenticated => _currentUser != null;
+  bool get isAuthenticated => _currentUser != null || _isGuestMode;
   bool get isGuest => _isGuestMode; 
   String? get userEmail => _currentUser?.email;
   String? get userPhoto => _currentUser?.photoUrl;
@@ -159,28 +165,46 @@ class DataManager extends ChangeNotifier {
     }
   }
 
-  void updateSettings({
+  // UPDATED: Now returns Future<void> so tests can await it
+  Future<void> updateSettings({
     bool? isDark, bool? is24h, bool? enableLate, bool? enableOt,
     double? defaultRate,
     TimeOfDay? shiftStart, TimeOfDay? shiftEnd
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    if (isDark != null) { _isDarkMode = isDark; prefs.setBool(kSettingDarkMode, isDark); }
-    if (is24h != null) { _use24HourFormat = is24h; prefs.setBool(kSetting24h, is24h); }
-    if (enableLate != null) { _enableLateDeductions = enableLate; prefs.setBool('enable_late', enableLate); }
-    if (enableOt != null) { _enableOvertime = enableOt; prefs.setBool('enable_ot', enableOt); }
-    if (defaultRate != null) { _defaultHourlyRate = defaultRate; prefs.setDouble('default_hourly_rate', defaultRate); }
+    
+    if (isDark != null) { 
+      _isDarkMode = isDark; 
+      await prefs.setBool(kSettingDarkMode, isDark); 
+    }
+    if (is24h != null) { 
+      _use24HourFormat = is24h; 
+      await prefs.setBool(kSetting24h, is24h); 
+    }
+    if (enableLate != null) { 
+      _enableLateDeductions = enableLate; 
+      await prefs.setBool('enable_late', enableLate); 
+    }
+    if (enableOt != null) { 
+      _enableOvertime = enableOt; 
+      await prefs.setBool('enable_ot', enableOt); 
+    }
+    if (defaultRate != null) { 
+      _defaultHourlyRate = defaultRate; 
+      await prefs.setDouble('default_hourly_rate', defaultRate); 
+    }
     
     if (shiftStart != null) { 
       _shiftStart = shiftStart; 
-      prefs.setInt('${kSettingShiftStart}_h', shiftStart.hour);
-      prefs.setInt('${kSettingShiftStart}_m', shiftStart.minute);
+      await prefs.setInt('${kSettingShiftStart}_h', shiftStart.hour);
+      await prefs.setInt('${kSettingShiftStart}_m', shiftStart.minute);
     }
     if (shiftEnd != null) { 
       _shiftEnd = shiftEnd; 
-      prefs.setInt('${kSettingShiftEnd}_h', shiftEnd.hour);
-      prefs.setInt('${kSettingShiftEnd}_m', shiftEnd.minute);
+      await prefs.setInt('${kSettingShiftEnd}_h', shiftEnd.hour);
+      await prefs.setInt('${kSettingShiftEnd}_m', shiftEnd.minute);
     }
+    
     notifyListeners();
   }
 

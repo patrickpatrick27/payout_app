@@ -535,6 +535,7 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> with TickerProv
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'detailFab', // <--- FIXED: Added Unique Hero Tag
         onPressed: () => _showShiftDialog(),
         label: const Text("Add Shift", style: TextStyle(fontWeight: FontWeight.bold)),
         icon: const Icon(CupertinoIcons.add),

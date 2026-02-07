@@ -2,7 +2,7 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Publish Pay Tracker",
+            "label": "🚀 Publish Pay Tracker",
             "type": "shell",
             "command": "./publish.sh",
             "problemMatcher": [],
@@ -11,8 +11,12 @@
                 "isDefault": true
             },
             "presentation": {
+                "echo": true,
                 "reveal": "always",
-                "panel": "new"
+                "focus": false,
+                "panel": "new",
+                "showReuseMessage": true,
+                "clear": true
             }
         }
     ]

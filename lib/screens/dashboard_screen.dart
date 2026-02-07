@@ -606,6 +606,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                   const SizedBox(height: 10), 
                   // UPDATED: Oval, Outlined, Theme-Aware FAB
                   FloatingActionButton.extended(
+                    heroTag: 'dashboardFabEmpty', // Unique tag for empty state FAB
                     onPressed: _createNewPeriod,
                     backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                     foregroundColor: primaryColor,
@@ -703,6 +704,7 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                 ),
           // UPDATED: Oval, Outlined, Theme-Aware FAB with Label
           floatingActionButton: FloatingActionButton.extended(
+            heroTag: 'dashboardFab', // <--- FIXED: Added Unique Hero Tag
             onPressed: _createNewPeriod,
             label: const Text("Add Payroll", style: TextStyle(fontWeight: FontWeight.bold)),
             icon: const Icon(CupertinoIcons.add),

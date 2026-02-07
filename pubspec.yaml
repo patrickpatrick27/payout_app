@@ -1,7 +1,7 @@
 name: work_app
 description: "A professional pay tracking application."
 publish_to: 'none'
-version: 1.0.53+1
+version: 1.0.54+1
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -29,7 +29,7 @@ dependencies:
   dio: ^5.4.0
 
   # --- Audio & Multimedia ---
-  audioplayers: ^5.2.1 # NEW: Added for sound effects
+  audioplayers: ^5.2.1 
 
   # --- UI & Formatting ---
   cupertino_icons: ^1.0.6
@@ -39,16 +39,21 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.13.1
+  
+  # --- Testing Utilities (REQUIRED FOR AUTH MOCKS) ---
+  mockito: ^5.4.4
+  build_runner: ^2.4.8
 
 flutter:
   uses-material-design: true
   
-  # Registering the sound assets
   assets:
     - assets/
-    - assets/sounds/ # NEW: Specifically include the sounds folder
+    - assets/sounds/ 
 
 flutter_launcher_icons:
   android: "launcher_icon"
