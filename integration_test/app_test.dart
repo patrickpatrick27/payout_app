@@ -12,7 +12,7 @@ import 'package:work_app/services/audio_service.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Master Test: Settings -> 2 Payrolls -> Specific Shift Scenarios -> Manual Takeover', (tester) async {
+  testWidgets('Master Test: Settings -> 2 Payrolls -> Specific Shift Scenarios', (tester) async {
     
     // =========================================================================
     // 1. SETUP & INITIALIZATION
@@ -45,11 +45,9 @@ void main() {
     // 2. TOGGLE ALL SETTINGS
     // =========================================================================
     print("🔹 STEP 3: TESTING SETTINGS TOGGLES");
-    // Use CupertinoIcons.settings
     await tester.tap(find.byIcon(CupertinoIcons.settings));
     await tester.pumpAndSettle();
 
-    // Toggle all switches found on screen
     final switches = find.byType(Switch);
     for (int i = 0; i < switches.evaluate().length; i++) {
       await tester.tap(find.byType(Switch).at(i));
@@ -92,9 +90,12 @@ void main() {
       await tester.tap(find.byIcon(CupertinoIcons.calendar).first); 
       await tester.pumpAndSettle();
 
-      // Scroll the MIDDLE column (Day) to pick different days
-      final pickerLocation = tester.getCenter(find.byType(CupertinoDatePicker));
-      await tester.dragFrom(pickerLocation, Offset(0, 40.0 * (i + 1))); 
+      // --- FIX: SCROLL THE "DAY" COLUMN (Right of Center) ---
+      final pickerCenter = tester.getCenter(find.byType(CupertinoDatePicker));
+      final dayColumnPoint = pickerCenter + const Offset(70, 0); 
+
+      // Drag downwards to pick later days
+      await tester.dragFrom(dayColumnPoint, Offset(0, 40.0 * (i + 1))); 
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Confirm')); 
@@ -115,7 +116,7 @@ void main() {
     await tester.tap(find.widgetWithText(FloatingActionButton, 'Add Payroll'));
     await tester.pumpAndSettle();
 
-    // Scroll Start Date (Move Month/Day significantly)
+    // Scroll Start Date
     await tester.drag(find.byType(CupertinoDatePicker), const Offset(0, -100)); 
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
@@ -129,7 +130,7 @@ void main() {
 
 
     // =========================================================================
-    // 6. COMPLEX SCENARIOS (Late, OT+30%, Double Pay)
+    // 6. COMPLEX SCENARIOS
     // =========================================================================
     print("🔹 STEP 7: ADDING COMPLEX SHIFTS");
 
@@ -142,15 +143,14 @@ void main() {
     await tester.tap(find.text('IN')); 
     await tester.pumpAndSettle();
     
-    // Scroll Hour Column (Left side of picker)
+    // Scroll Hour Column (Far Left)
     final timePickerCenter = tester.getCenter(find.byType(CupertinoDatePicker));
-    await tester.dragFrom(timePickerCenter + const Offset(-50, 0), const Offset(0, -50)); 
+    await tester.dragFrom(timePickerCenter + const Offset(-80, 0), const Offset(0, -50)); 
     await tester.pumpAndSettle();
     
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
     
-    // Add Remark
     await tester.enterText(find.byType(TextField).last, "Late Test");
     await tester.tap(find.widgetWithText(ElevatedButton, 'Save Shift'));
     await tester.pumpAndSettle();
@@ -164,15 +164,18 @@ void main() {
     // Change Date
     await tester.tap(find.byIcon(CupertinoIcons.calendar).first);
     await tester.pumpAndSettle();
-    await tester.drag(find.byType(CupertinoDatePicker), const Offset(0, 50)); 
+    final datePickerCenter = tester.getCenter(find.byType(CupertinoDatePicker));
+    await tester.dragFrom(datePickerCenter + const Offset(70, 0), const Offset(0, 50)); 
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
 
     // Tap "OUT" time
     await tester.tap(find.text('OUT'));
     await tester.pumpAndSettle();
+    
     // Drag Hour forward
-    await tester.dragFrom(tester.getCenter(find.byType(CupertinoDatePicker)) + const Offset(-50, 0), const Offset(0, -100)); 
+    final timePickerOutCenter = tester.getCenter(find.byType(CupertinoDatePicker));
+    await tester.dragFrom(timePickerOutCenter + const Offset(-80, 0), const Offset(0, -100)); 
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
 
@@ -180,7 +183,6 @@ void main() {
     await tester.tap(find.text('Holiday / Rest')); 
     await tester.pumpAndSettle();
     
-    // Find input by exact label
     await tester.enterText(find.widgetWithText(TextField, 'Percent Increase (%)'), '30');
     await tester.pumpAndSettle();
 
@@ -197,7 +199,8 @@ void main() {
     // Change Date
     await tester.tap(find.byIcon(CupertinoIcons.calendar).first);
     await tester.pumpAndSettle();
-    await tester.drag(find.byType(CupertinoDatePicker), const Offset(0, 100)); 
+    final datePickerDoubleCenter = tester.getCenter(find.byType(CupertinoDatePicker));
+    await tester.dragFrom(datePickerDoubleCenter + const Offset(70, 0), const Offset(0, 100)); 
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
 
@@ -213,7 +216,7 @@ void main() {
 
 
     // =========================================================================
-    // 7. VERIFY & MANUAL TAKEOVER
+    // 7. VERIFY & FINISH
     // =========================================================================
     print("🔹 STEP 8: VERIFICATION");
     
@@ -224,13 +227,7 @@ void main() {
     await tester.pageBack(); // Back to Dashboard
     await tester.pumpAndSettle();
     
-    print("✅ TEST PASSED.");
-    print("🟢 YOU CAN NOW USE THE APP MANUALLY!");
-    print("   (Data was NOT deleted. Press 'q' in terminal to stop.)");
-
-    // --- INFINITE LOOP TO KEEP APP ALIVE ---
-    while (true) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
+    print("✅ TEST PASSED. EXITING.");
+    // No Infinite Loop here! The function ends, and the test reports success.
   });
 }
