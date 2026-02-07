@@ -2,11 +2,33 @@
 set -e # Stops the script immediately if any command fails
 
 # ==========================================
-# 1. PRE-FLIGHT CHECKS & TESTS
+# 1. IMMEDIATE VERSION CHECK (FAIL FAST)
 # ==========================================
 
 echo "----------------------------------------------------"
-echo "🔍 STEP 1: CHECKING FOR UNCOMMITTED CHANGES"
+echo "🔍 STEP 1: CHECKING GITHUB FOR EXISTING VERSIONS"
+echo "----------------------------------------------------"
+
+# Extract Version from pubspec.yaml
+VERSION=$(grep 'version:' pubspec.yaml | cut -d ' ' -f 2 | cut -d '+' -f 1)
+TAG="v$VERSION"
+
+# Check if this tag already exists on GitHub
+if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+    echo "❌ CRITICAL ERROR: Version $TAG already exists on GitHub!"
+    echo "👉 You must update the version in pubspec.yaml before releasing."
+    echo "   Aborting process to prevent overwriting."
+    exit 1
+else
+    echo "✅ Version $TAG is new. Proceeding..."
+fi
+
+# ==========================================
+# 2. LOCAL CHECKS & TESTS
+# ==========================================
+
+echo "----------------------------------------------------"
+echo "🔍 STEP 2: CHECKING FOR UNCOMMITTED CHANGES"
 echo "----------------------------------------------------"
 if [[ -n $(git status --porcelain) ]]; then
   echo "❌ Error: You have uncommitted changes."
@@ -15,7 +37,7 @@ if [[ -n $(git status --porcelain) ]]; then
 fi
 
 echo "----------------------------------------------------"
-echo "🧪 STEP 2: RUNNING UNIT & WIDGET TESTS"
+echo "🧪 STEP 3: RUNNING UNIT & WIDGET TESTS"
 echo "----------------------------------------------------"
 # Runs logic tests (Math, Serialization, Auth Mock)
 flutter test
@@ -23,7 +45,7 @@ flutter test
 echo "✅ Unit Tests Passed!"
 
 echo "----------------------------------------------------"
-echo "🤖 STEP 3: RUNNING INTEGRATION (ROBOT) TESTS"
+echo "🤖 STEP 4: RUNNING ROBOT (INTEGRATION) TESTS"
 echo "----------------------------------------------------"
 # Checks if a phone is connected
 if flutter devices | grep -q "0 connected"; then
@@ -37,18 +59,12 @@ else
 fi
 
 # ==========================================
-# 2. VERSIONING & NOTES
+# 3. PREPARE RELEASE NOTES (AUTOMATED)
 # ==========================================
 
-# Extract Version from pubspec.yaml
-VERSION=$(grep 'version:' pubspec.yaml | cut -d ' ' -f 2 | cut -d '+' -f 1)
-TAG="v$VERSION"
-
 echo "----------------------------------------------------"
-echo "🚀 STEP 4: PREPARING RELEASE $TAG"
+echo "📝 STEP 5: GENERATING RELEASE NOTES"
 echo "----------------------------------------------------"
-
-# --- AUTO-GENERATE RELEASE NOTES FROM COMMITS ---
 
 # Try to find the previous tag
 PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
@@ -57,27 +73,20 @@ if [ -z "$PREV_TAG" ]; then
     # If no tags exist yet, use the very last commit message
     RELEASE_NOTES=$(git log -1 --pretty=%B)
 else
-    # If a tag exists, get all commit messages since that tag
-    # Format: "* hash - message"
+    # Get all commit messages since the last tag
     RELEASE_NOTES=$(git log "$PREV_TAG"..HEAD --pretty='format:* %h - %s')
 fi
 
-echo "📝 Auto-generated Release Notes:"
+echo "Captured Notes:"
 echo "$RELEASE_NOTES"
-echo "----------------------------------------------------"
-echo "Press Enter to confirm these notes, or type new ones to overwrite:"
-read -r USER_NOTES
-
-if [ -n "$USER_NOTES" ]; then
-  RELEASE_NOTES="$USER_NOTES"
-fi
+# NO PROMPT HERE - Proceeding automatically
 
 # ==========================================
-# 3. BUILD
+# 4. BUILD
 # ==========================================
 
 echo "----------------------------------------------------"
-echo "🛠  STEP 5: BUILDING APK"
+echo "🛠  STEP 6: BUILDING APK"
 echo "----------------------------------------------------"
 flutter build apk --release --no-tree-shake-icons
 
@@ -93,22 +102,17 @@ NEW_NAME="build/app/outputs/flutter-apk/Pay_Tracker_$TAG.apk"
 mv "$APK_PATH" "$NEW_NAME"
 
 # ==========================================
-# 4. RELEASE TO GITHUB
+# 5. RELEASE TO GITHUB
 # ==========================================
 
 echo "----------------------------------------------------"
-echo "☁️  STEP 6: PUSHING TO GITHUB"
+echo "☁️  STEP 7: PUSHING TO GITHUB"
 echo "----------------------------------------------------"
 git push origin HEAD
 
-# Tag handling
-if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
-    echo "⚠️  Tag $TAG already exists. Skipping tag creation..."
-else
-    echo "🏷  Creating tag $TAG..."
-    git tag "$TAG"
-    git push origin "$TAG"
-fi
+echo "🏷  Creating tag $TAG..."
+git tag "$TAG"
+git push origin "$TAG"
 
 echo "📦 Uploading APK to GitHub Releases..."
 gh release create "$TAG" "$NEW_NAME" \
