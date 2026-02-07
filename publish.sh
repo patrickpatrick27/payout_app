@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e # Stops the script immediately if any command fails
 
+# 0. START TIMER
+START_TIME=$(date +%s)
+
 # ==========================================
 # 1. IMMEDIATE VERSION CHECK (FAIL FAST)
 # ==========================================
@@ -119,6 +122,16 @@ gh release create "$TAG" "$NEW_NAME" \
     --title "Version $VERSION" \
     --notes "$RELEASE_NOTES"
 
+# ==========================================
+# 6. FINISH & CALCULATE TIME
+# ==========================================
+
+END_TIME=$(date +%s)
+TOTAL_SECONDS=$((END_TIME - START_TIME))
+MINUTES=$((TOTAL_SECONDS / 60))
+SECONDS=$((TOTAL_SECONDS % 60))
+
 echo "----------------------------------------------------"
 echo "✅ SUCCESS! Version $TAG is now live on GitHub."
+echo "⏱  Total Time: ${MINUTES}m ${SECONDS}s"
 echo "----------------------------------------------------"
