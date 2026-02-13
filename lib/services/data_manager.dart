@@ -7,17 +7,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/constants.dart';
 
 class DataManager extends ChangeNotifier {
-  // Make this non-final so we can set it via constructor if needed, 
-  // or keep it final but initialized in the constructor.
   final GoogleSignIn _googleSignIn;
 
-  // UPDATED CONSTRUCTOR: Allows injecting a mock for testing
+  // UPDATED: Allows dependency injection for testing
   DataManager({GoogleSignIn? googleSignIn}) 
       : _googleSignIn = googleSignIn ?? GoogleSignIn(
           scopes: [drive.DriveApi.driveAppdataScope],
         );
 
   GoogleSignInAccount? _currentUser;
+  
+  // NEW: Offline Cache Variables
+  String? _cachedEmail;
+  String? _cachedPhoto;
+  bool _isOfflineLoggedIn = false;
+
   bool _isInitialized = false;
   bool _isGuestMode = false;
   
@@ -32,11 +36,17 @@ class DataManager extends ChangeNotifier {
 
   // Getters
   bool get isInitialized => _isInitialized;
-  bool get isAuthenticated => _currentUser != null || _isGuestMode;
-  bool get isGuest => _isGuestMode; 
-  String? get userEmail => _currentUser?.email;
-  String? get userPhoto => _currentUser?.photoUrl;
   
+  // UPDATED: Authentication now checks Google OR Offline Cache
+  bool get isAuthenticated => _currentUser != null || _isOfflineLoggedIn || _isGuestMode;
+  
+  bool get isGuest => _isGuestMode; 
+  
+  // UPDATED: Returns cached email if offline
+  String? get userEmail => _currentUser?.email ?? _cachedEmail;
+  String? get userPhoto => _currentUser?.photoUrl ?? _cachedPhoto;
+  
+  // Settings Getters
   bool get isDarkMode => _isDarkMode;
   bool get use24HourFormat => _use24HourFormat;
   bool get enableLateDeductions => _enableLateDeductions;
@@ -56,6 +66,11 @@ class DataManager extends ChangeNotifier {
     _enableOvertime = prefs.getBool('enable_ot') ?? true;
     _defaultHourlyRate = prefs.getDouble('default_hourly_rate') ?? 50.0;
     
+    // Load User Cache
+    _cachedEmail = prefs.getString('cached_user_email');
+    _cachedPhoto = prefs.getString('cached_user_photo');
+    bool wasLoggedIn = prefs.getBool('was_logged_in') ?? false;
+
     int startH = prefs.getInt('${kSettingShiftStart}_h') ?? 8;
     int startM = prefs.getInt('${kSettingShiftStart}_m') ?? 0;
     _shiftStart = TimeOfDay(hour: startH, minute: startM);
@@ -64,11 +79,27 @@ class DataManager extends ChangeNotifier {
     int endM = prefs.getInt('${kSettingShiftEnd}_m') ?? 0;
     _shiftEnd = TimeOfDay(hour: endH, minute: endM);
 
-    if (!_isGuestMode) {
+    if (!_isGuestMode && wasLoggedIn) {
       try {
+        // Try Online Login
         _currentUser = await _googleSignIn.signInSilently();
+        
+        if (_currentUser != null) {
+          // Refresh Cache on success
+          await _cacheUserSession(_currentUser!);
+        } else {
+          // If null (but not error), it implies explicit sign out elsewhere, 
+          // OR purely offline. We assume offline if we had a cache.
+          if (_cachedEmail != null) {
+             _isOfflineLoggedIn = true;
+          }
+        }
       } catch (e) {
-        print("Silent Login Failed: $e");
+        print("Silent Login Failed (Likely Offline): $e");
+        // Fallback to Offline Mode
+        if (_cachedEmail != null) {
+          _isOfflineLoggedIn = true;
+        }
       }
     }
     
@@ -84,8 +115,13 @@ class DataManager extends ChangeNotifier {
       
       if (_currentUser != null) {
         _isGuestMode = false;
+        _isOfflineLoggedIn = false; // We are now Online
+        
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('is_guest_mode', false);
+        
+        // Save Session
+        await _cacheUserSession(_currentUser!);
 
         // Auto-fetch data on login
         String? cloudJson = await fetchCloudDataOnly();
@@ -110,21 +146,37 @@ class DataManager extends ChangeNotifier {
     
     _currentUser = null;
     _isGuestMode = false; 
+    _isOfflineLoggedIn = false;
+    _cachedEmail = null;
+    _cachedPhoto = null;
     
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_guest_mode', false);
+    await prefs.setBool('was_logged_in', false);
+    await prefs.remove('cached_user_email');
+    await prefs.remove('cached_user_photo');
+    
     await clearLocalData();
     
     notifyListeners();
   }
 
-  // UPDATED: Updates UI instantly, saves to disk in background
+  Future<void> _cacheUserSession(GoogleSignInAccount user) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('cached_user_email', user.email);
+    if (user.photoUrl != null) {
+      await prefs.setString('cached_user_photo', user.photoUrl!);
+    }
+    await prefs.setBool('was_logged_in', true);
+    
+    _cachedEmail = user.email;
+    _cachedPhoto = user.photoUrl;
+  }
+
   void continueAsGuest() {
     _currentUser = null;
     _isGuestMode = true;
-    notifyListeners(); // Immediate UI update
-
-    // Fire and forget storage update
+    notifyListeners(); 
     _saveGuestModePreference();
   }
 
@@ -143,6 +195,7 @@ class DataManager extends ChangeNotifier {
   }
 
   Future<bool> deleteCloudData() async {
+    // Only allow deletion if ONLINE
     if (_currentUser == null) return false;
     try {
       final driveApi = await _getDriveApi();
@@ -165,7 +218,6 @@ class DataManager extends ChangeNotifier {
     }
   }
 
-  // UPDATED: Now returns Future<void> so tests can await it
   Future<void> updateSettings({
     bool? isDark, bool? is24h, bool? enableLate, bool? enableOt,
     double? defaultRate,
@@ -210,13 +262,16 @@ class DataManager extends ChangeNotifier {
 
   // --- GOOGLE DRIVE LOGIC ---
   Future<drive.DriveApi?> _getDriveApi() async {
+    // If we are offline logged in, we CANNOT get Drive API.
     if (_currentUser == null) return null;
+    
     final headers = await _currentUser!.authHeaders;
     final client = GoogleAuthClient(headers);
     return drive.DriveApi(client);
   }
 
   Future<String?> fetchCloudDataOnly() async {
+    // Return null if offline
     if (_currentUser == null) return null;
     try {
       final driveApi = await _getDriveApi();
@@ -234,6 +289,7 @@ class DataManager extends ChangeNotifier {
   }
 
   Future<bool> syncPayrollToCloud(List<Map<String, dynamic>> localData) async {
+    // Return false if offline
     if (_currentUser == null) return false;
     try {
       final driveApi = await _getDriveApi();
