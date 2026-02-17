@@ -14,19 +14,19 @@ class SettingsScreen extends StatefulWidget {
   final String currencySymbol;
   final TimeOfDay shiftStart;
   final TimeOfDay shiftEnd;
-  final bool snapToGrid; // New: Smart Rounding Setting
+  final bool snapToGrid;
   
   final Function({
     bool? isDark, bool? is24h, bool? hideMoney, 
     String? currencySymbol, TimeOfDay? shiftStart, TimeOfDay? shiftEnd,
     bool? enableLate, bool? enableOt, double? defaultRate,
-    bool? snapToGrid // New: Callback parameter
+    bool? snapToGrid 
   }) onUpdate;
 
   final VoidCallback onDeleteAll; 
-  final VoidCallback onExportReport;
-  final VoidCallback onBackup;
-  final Function(String) onRestore;
+  final VoidCallback onExportReport; // Exports CSV
+  final VoidCallback onBackup;       // Exports JSON
+  final VoidCallback onRestore;      // Triggers File Picker (Import)
 
   const SettingsScreen({
     super.key,
@@ -36,7 +36,7 @@ class SettingsScreen extends StatefulWidget {
     required this.currencySymbol,
     required this.shiftStart,
     required this.shiftEnd,
-    required this.snapToGrid, // Required
+    required this.snapToGrid,
     required this.onUpdate,
     required this.onDeleteAll,
     required this.onExportReport,
@@ -64,10 +64,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     
     final manager = Provider.of<DataManager>(context, listen: false);
     _rateController = TextEditingController(text: manager.defaultHourlyRate.toStringAsFixed(0));
-    
-    // Load initial mute state from Service
     _isMuted = AudioService().isMuted;
-
     _checkForUpdates();
   }
 
@@ -96,8 +93,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       shiftEnd: !isStart ? newTime : null
     );
   }
-
-  // --- DELETE ACTIONS ---
 
   void _confirmClearLocal(BuildContext context) {
     AudioService().playClick();
@@ -143,38 +138,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showRestoreDialog(BuildContext context) {
-    final TextEditingController _controller = TextEditingController();
-    final bool isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Restore Backup"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("Paste the JSON code you copied from 'Backup Data' here:", style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _controller,
-              maxLines: 5,
-              style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black),
-              decoration: const InputDecoration(border: OutlineInputBorder(), hintText: '[{"id": "...", "name": "..."}]', hintStyle: TextStyle(color: Colors.grey)),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
-          FilledButton(
-            onPressed: () { String data = _controller.text; Navigator.pop(ctx); if (data.isNotEmpty) widget.onRestore(data); }, 
-            child: const Text("Restore Data")
-          ),
-        ],
-      )
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final manager = Provider.of<DataManager>(context);
@@ -192,7 +155,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 20),
           _buildSectionHeader("CALCULATIONS"),
           
-          // --- GLOBAL BASE PAY INPUT ---
           ListTile(
             tileColor: bg,
             leading: const Icon(CupertinoIcons.money_dollar_circle),
@@ -215,7 +177,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           
-          // --- NEW: SMART ROUNDING ---
           SwitchListTile(
             title: const Text("Smart Rounding (30m)"),
             subtitle: const Text("7:47 → 8:00 • 5:03 → 5:00"),
@@ -296,33 +257,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
               GithubUpdateService.checkForUpdate(context, showNoUpdateMsg: true); 
             },
           ),
+          
           ListTile(
             tileColor: bg, 
-            leading: const Icon(Icons.description, color: Colors.purple), 
-            title: const Text("Copy Text Report"), 
-            subtitle: const Text("For humans (WhatsApp/Email)", style: TextStyle(fontSize: 10)), 
+            leading: const Icon(Icons.table_chart, color: Colors.green), 
+            title: const Text("Export CSV Report"), 
+            subtitle: const Text("Share Excel file"), 
             onTap: () {
                AudioService().playClick();
-               widget.onExportReport();
+               widget.onExportReport(); 
             }
           ),
           ListTile(
             tileColor: bg, 
-            leading: const Icon(Icons.save, color: Colors.teal), 
-            title: const Text("Backup Data (JSON)"), 
-            subtitle: const Text("For switching apps (Save this code!)", style: TextStyle(fontSize: 10)), 
+            leading: const Icon(Icons.file_upload, color: Colors.teal), 
+            title: const Text("Export Backup (JSON)"), 
+            subtitle: const Text("Save backup file to storage"), 
             onTap: () {
               AudioService().playClick();
-              widget.onBackup();
+              widget.onBackup(); 
             }
           ),
           ListTile(
             tileColor: bg, 
-            leading: const Icon(Icons.restore, color: Colors.orange), 
-            title: const Text("Restore Backup"), 
+            leading: const Icon(Icons.file_download, color: Colors.orange), 
+            title: const Text("Import Backup"), 
+            subtitle: const Text("Select .json file to restore"),
             onTap: () { 
               AudioService().playClick(); 
-              _showRestoreDialog(context); 
+              widget.onRestore(); 
             }
           ),
           

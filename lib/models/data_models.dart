@@ -68,9 +68,21 @@ class Shift {
 
   // --- TIME HELPERS ---
   
-  TimeOfDay _snapTime(TimeOfDay raw) {
+  // Standard Rounding (Nearest 30) - Used for Start Time
+  TimeOfDay _snapTimeNearest(TimeOfDay raw) {
     int totalMinutes = raw.hour * 60 + raw.minute;
     int roundedMinutes = (totalMinutes / 30).round() * 30;
+    int newHour = (roundedMinutes ~/ 60) % 24;
+    int newMinute = roundedMinutes % 60;
+    return TimeOfDay(hour: newHour, minute: newMinute);
+  }
+
+  // Strict Floor Rounding (Previous 30) - Used for End Time
+  // Example: 6:29 -> 6:00, 6:30 -> 6:30
+  TimeOfDay _snapTimeFloor(TimeOfDay raw) {
+    int totalMinutes = raw.hour * 60 + raw.minute;
+    // Use floor() to ensure we wait for the full interval
+    int roundedMinutes = (totalMinutes / 30).floor() * 30;
     int newHour = (roundedMinutes ~/ 60) % 24;
     int newMinute = roundedMinutes % 60;
     return TimeOfDay(hour: newHour, minute: newMinute);
@@ -89,16 +101,17 @@ class Shift {
     TimeOfDay effectiveIn = rawTimeIn;
     
     if (snapToGrid) {
-      // Smart Logic: Snap only if ON TIME or EARLY.
+      // Logic: If Late -> Exact. If Early/OnTime -> Snap Nearest.
       if (isLateEnabled && _toMins(rawTimeIn) > _toMins(shiftStart)) {
-         effectiveIn = rawTimeIn; // Exact time (Late)
+         effectiveIn = rawTimeIn; 
       } else {
-         effectiveIn = _snapTime(rawTimeIn); // Snap (Early/OnTime)
+         effectiveIn = _snapTimeNearest(rawTimeIn); 
       }
     }
 
     // 2. DETERMINE EFFECTIVE END TIME
-    TimeOfDay effectiveOut = snapToGrid ? _snapTime(rawTimeOut) : rawTimeOut;
+    // NEW LOGIC: Use Floor Snapping for End Time (Wait for interval)
+    TimeOfDay effectiveOut = snapToGrid ? _snapTimeFloor(rawTimeOut) : rawTimeOut;
 
     // 3. CONVERT TO DATETIME
     DateTime startDt = DateTime(date.year, date.month, date.day, effectiveIn.hour, effectiveIn.minute);
@@ -118,13 +131,12 @@ class Shift {
        standardEnd = standardEnd.add(const Duration(days: 1));
     }
 
-    // --- NEW LOGIC: STRICT START TIME ---
-    // Even if you arrive at 7:00 AM for an 8:00 AM shift, pay starts at 8:00 AM.
+    // STRICT START TIME: Pay never starts before scheduled shift
     if (startDt.isBefore(standardStart)) {
       startDt = standardStart;
     }
 
-    // Cap at Shift End (Anything after is OT)
+    // Cap at Shift End
     if (endDt.isAfter(standardEnd)) {
       endDt = standardEnd;
     }
@@ -133,7 +145,7 @@ class Shift {
     Duration duration = endDt.difference(startDt);
     double hours = duration.inMinutes / 60.0;
 
-    // 6. AUTOMATIC LUNCH DEDUCTION
+    // 6. LUNCH DEDUCTION
     if (hours > 6.0) {
       hours -= 1.0;
     }
@@ -151,7 +163,8 @@ class Shift {
       standardEnd = standardEnd.add(const Duration(days: 1));
     }
 
-    TimeOfDay tOut = snapToGrid ? _snapTime(rawTimeOut) : rawTimeOut;
+    // Use Floor Snapping for Overtime too
+    TimeOfDay tOut = snapToGrid ? _snapTimeFloor(rawTimeOut) : rawTimeOut;
     DateTime actualEnd = DateTime(date.year, date.month, date.day, tOut.hour, tOut.minute);
     
     DateTime startDt = _getDateTime(rawTimeIn);
@@ -227,13 +240,11 @@ class PayPeriod {
         continue;
       }
 
-      // Reg hours are now strictly clamped to start time
       double reg = s.getRegularHours(shiftStart, shiftEnd, isLateEnabled: enableLate, snapToGrid: snapToGrid);
       double ot = enableOt ? s.getOvertimeHours(shiftStart, shiftEnd, snapToGrid: snapToGrid) : 0.0;
       
       double dailyPay = (reg * rate) + (ot * rate * 1.25);
       
-      // Holiday Multiplier
       if (s.isHoliday && s.holidayMultiplier > 0) {
         dailyPay += dailyPay * (s.holidayMultiplier / 100.0);
       }

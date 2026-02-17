@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/cupertino.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,9 +7,15 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart'; 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import 'package:csv/csv.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart'; // <--- ADDED THIS
+
 import '../models/data_models.dart';
 import '../utils/helpers.dart';
 import '../utils/constants.dart';
+import '../utils/calculations.dart'; 
 import '../widgets/custom_pickers.dart';
 import '../widgets/sync_conflict_dialog.dart';
 import '../services/data_manager.dart'; 
@@ -32,7 +39,7 @@ class PayPeriodListScreen extends StatefulWidget {
     bool? enableLate,
     bool? enableOt,
     double? defaultRate,
-    bool? snapToGrid, // Added callback param
+    bool? snapToGrid,
   }) onUpdateSettings;
 
   const PayPeriodListScreen({
@@ -53,16 +60,13 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
   final NumberFormat currencyFormatter = NumberFormat("#,##0.00", "en_US");
   bool _isUnsynced = false; 
 
-  // Settings State
   bool _hideMoney = false;
   String _currencySymbol = '₱';
   String _currentSort = 'newest'; 
 
-  // Scroll State
   final ScrollController _scrollController = ScrollController();
   double _appBarOpacity = 0.0;
 
-  // Offline Cache
   String? _cachedEmail;
   String? _cachedPhoto;
 
@@ -143,6 +147,101 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
     if (mounted) setState(() { _isUnsynced = true; });
   }
 
+  // --- CSV EXPORT LOGIC ---
+  Future<void> _exportAllCsv() async {
+    final manager = Provider.of<DataManager>(context, listen: false);
+    
+    // Build CSV Rows
+    List<List<dynamic>> rows = [];
+    rows.add(["Period Name", "Date", "Day", "Time In", "Time Out", "Regular Hours", "OT Hours", "Late Minutes", "Daily Pay"]);
+
+    for (var p in periods) {
+      for (var s in p.shifts) {
+        double reg = s.getRegularHours(
+          widget.shiftStart, 
+          widget.shiftEnd, 
+          isLateEnabled: manager.enableLateDeductions, 
+          snapToGrid: manager.snapToGrid
+        );
+        
+        double ot = manager.enableOvertime 
+            ? s.getOvertimeHours(widget.shiftStart, widget.shiftEnd, snapToGrid: manager.snapToGrid) 
+            : 0.0;
+            
+        int lateMins = PayrollCalculator.calculateLateMinutes(s.rawTimeIn, widget.shiftStart);
+        
+        double rate = p.hourlyRate > 0 ? p.hourlyRate : manager.defaultHourlyRate;
+        double pay = (reg * rate) + (ot * rate * 1.25);
+        if (s.isHoliday && s.holidayMultiplier > 0) {
+           pay += pay * (s.holidayMultiplier / 100.0);
+        }
+
+        rows.add([
+          p.name,
+          DateFormat('yyyy-MM-dd').format(s.date),
+          DateFormat('EEEE').format(s.date),
+          s.isManualPay ? "MANUAL" : formatTime(context, s.rawTimeIn, widget.use24HourFormat),
+          s.isManualPay ? "-" : formatTime(context, s.rawTimeOut, widget.use24HourFormat),
+          reg.toStringAsFixed(2),
+          ot.toStringAsFixed(2),
+          lateMins,
+          pay.toStringAsFixed(2)
+        ]);
+      }
+    }
+
+    String csvData = const ListToCsvConverter().convert(rows);
+    
+    // Save to Temp File
+    final directory = await getTemporaryDirectory();
+    final path = "${directory.path}/pay_tracker_full_export.csv";
+    final File file = File(path);
+    await file.writeAsString(csvData);
+
+    // Share File
+    await Share.shareXFiles([XFile(path)], text: 'Pay Tracker Full Report');
+  }
+
+  // --- JSON EXPORT (BACKUP) LOGIC ---
+  Future<void> _exportBackupJson() async {
+    final String jsonData = jsonEncode(periods.map((e) => e.toJson()).toList());
+    
+    final directory = await getTemporaryDirectory();
+    final path = "${directory.path}/pay_tracker_backup.json";
+    final File file = File(path);
+    await file.writeAsString(jsonData);
+    
+    await Share.shareXFiles([XFile(path)], text: 'Pay Tracker Backup File (JSON)');
+  }
+
+  // --- JSON IMPORT (RESTORE) LOGIC ---
+  Future<void> _pickAndRestoreJson() async {
+    try {
+      // Open File Picker
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json', 'txt'], // Allowing txt just in case
+      );
+
+      if (result != null) {
+        // Read file content
+        File file = File(result.files.single.path!);
+        String content = await file.readAsString();
+        
+        // Restore
+        final List<dynamic> decoded = jsonDecode(content);
+        setState(() {
+          periods = decoded.map((e) => PayPeriod.fromJson(e)).toList();
+          _applySort();
+        });
+        _saveData();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data imported successfully!"), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Import Failed: Invalid File"), backgroundColor: Colors.red));
+    }
+  }
+
   void _performManualSync() async {
     final manager = Provider.of<DataManager>(context, listen: false);
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Checking Cloud..."), duration: Duration(seconds: 1)));
@@ -161,7 +260,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
 
       if (localJson != cloudJson && mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -249,7 +347,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
 
   void _openSettings() {
     AudioService().playClick(); 
-    // Get manager to read current snap setting
     final manager = Provider.of<DataManager>(context, listen: false);
 
     Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(
@@ -259,11 +356,11 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
       currencySymbol: _currencySymbol,
       shiftStart: widget.shiftStart,
       shiftEnd: widget.shiftEnd,
-      snapToGrid: manager.snapToGrid, // Pass current setting
+      snapToGrid: manager.snapToGrid, 
       
       onUpdate: ({
         isDark, is24h, hideMoney, currencySymbol, shiftStart, shiftEnd, 
-        enableLate, enableOt, defaultRate, snapToGrid // Recieve update
+        enableLate, enableOt, defaultRate, snapToGrid 
       }) async {
         final prefs = await SharedPreferences.getInstance();
         
@@ -276,7 +373,6 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
           prefs.setString('setting_currency_symbol', currencySymbol); 
         }
         
-        // Update DataManager with all settings including snapToGrid
         Provider.of<DataManager>(context, listen: false).updateSettings(
           isDark: isDark, 
           is24h: is24h, 
@@ -289,7 +385,9 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
         );
       },
       onDeleteAll: () async { setState(() { periods = []; }); _saveData(); },
-      onExportReport: () {}, onBackup: () {}, onRestore: (s) {},
+      onExportReport: _exportAllCsv, 
+      onBackup: _exportBackupJson,   
+      onRestore: _pickAndRestoreJson, // <--- Passing the File Picker Logic here
     )));
   }
 
@@ -424,14 +522,13 @@ class _PayPeriodListScreenState extends State<PayPeriodListScreen> {
                   itemBuilder: (context, index) {
                     final p = periods[index];
                     
-                    // UPDATED: Calculate Total Pay with NEW Snap Setting
                     final totalPay = p.getTotalPay(
                       widget.shiftStart, 
                       widget.shiftEnd, 
                       hourlyRate: dataManager.defaultHourlyRate, 
                       enableLate: dataManager.enableLateDeductions, 
                       enableOt: dataManager.enableOvertime,
-                      snapToGrid: dataManager.snapToGrid // <--- PASSING THE SETTING HERE
+                      snapToGrid: dataManager.snapToGrid 
                     );
 
                     return Dismissible(

@@ -71,7 +71,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> with TickerProv
   double _calculateShiftPay(Shift s, double hourlyRate, bool snapToGrid) {
     if (s.isManualPay) return s.manualAmount;
 
-    // Updated to match Model Logic (Late = Exact, Early = Snapped)
     double regHours = s.getRegularHours(
       widget.shiftStart, 
       widget.shiftEnd, 
@@ -165,7 +164,9 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> with TickerProv
         sum + s.getOvertimeHours(widget.shiftStart, widget.shiftEnd, snapToGrid: snapToGrid)) : 0.0;
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.period.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+      appBar: AppBar(
+        title: Text(widget.period.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+      ),
       body: Column(
         children: [
           Container(
@@ -213,8 +214,9 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> with TickerProv
                     double otHours = s.getOvertimeHours(widget.shiftStart, widget.shiftEnd, snapToGrid: snapToGrid);
                     double shiftPay = _calculateShiftPay(s, hourlyRate, snapToGrid);
                     
-                    // Lateness logic for Display Tag (independent of pay)
                     bool isLate = widget.enableLate && lateMins > 0;
+                    
+                    final Color dateTextColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
 
                     return Dismissible(
                       key: Key(s.id),
@@ -229,7 +231,24 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> with TickerProv
                           decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0,2))]),
                           child: Row(
                             children: [
-                              Container(width: 50, padding: const EdgeInsets.symmetric(vertical: 8), decoration: BoxDecoration(color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], borderRadius: BorderRadius.circular(10)), child: Column(children: [Text(DateFormat('MMM').format(s.date).toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.grey)), Text(DateFormat('dd').format(s.date), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: isDark ? Colors.white : Colors.black87))])),
+                              Container(
+                                width: 50, 
+                                padding: const EdgeInsets.symmetric(vertical: 8), 
+                                decoration: BoxDecoration(color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[100], borderRadius: BorderRadius.circular(10)), 
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    // 1. Month
+                                    Text(DateFormat('MMM').format(s.date).toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: dateTextColor)), 
+                                    const SizedBox(height: 2),
+                                    // 2. Date Number
+                                    Text(DateFormat('dd').format(s.date), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, height: 1.0, color: isDark ? Colors.white : Colors.black87)),
+                                    const SizedBox(height: 2),
+                                    // 3. Day Name (Title case, No Italic)
+                                    Text(DateFormat('E').format(s.date), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: dateTextColor)),
+                                  ]
+                                )
+                              ),
                               const SizedBox(width: 16),
                               Expanded(
                                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -240,7 +259,6 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> with TickerProv
                                       Wrap(spacing: 6, runSpacing: 4, children: [
                                           _buildTag("Reg: ${_formatDuration(regHours)}", Colors.grey, isDark),
                                           if (widget.enableOt && otHours > 0) _buildTag("OT: ${_formatDuration(otHours)}", Colors.blue, isDark),
-                                          // Display Late tag based on Raw Minutes
                                           if (isLate) _buildTag("Late: ${lateMins}m", Colors.redAccent, isDark),
                                           if (s.isHoliday && s.holidayMultiplier > 0) _buildHolidayTag(context, "+${s.holidayMultiplier.toStringAsFixed(0)}% Pay"),
                                       ]),
@@ -286,6 +304,22 @@ class _PeriodDetailScreenState extends State<PeriodDetailScreen> with TickerProv
   }
 
   Widget _buildHolidayTag(BuildContext context, String text) {
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: Colors.transparent, borderRadius: BorderRadius.circular(50), border: Border.all(color: Colors.orange, width: 1)), child: Row(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.star, size: 10, color: Colors.orange), const SizedBox(width: 4), Text(text, style: const TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold))]));
+    return Container(
+      margin: const EdgeInsets.only(right: 6), // Matches _buildTag
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), // Matches _buildTag
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.1), // Matches _buildTag
+        borderRadius: BorderRadius.circular(6), // Matches _buildTag
+        // REMOVED: Border property that was causing extra height
+      ), 
+      child: Row(
+        mainAxisSize: MainAxisSize.min, 
+        children: [
+          const Icon(Icons.star, size: 10, color: Colors.orange), 
+          const SizedBox(width: 4), 
+          Text(text, style: const TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold))
+        ]
+      )
+    );
   }
 }
